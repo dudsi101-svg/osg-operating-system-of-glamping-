@@ -1,17 +1,16 @@
--- OSG semantic occupancy reference v0.1
--- Pre-freeze reference SQL. Requires PropertyStayPolicy patch.
--- Goal: distinguish physical capacity, sellable capacity and sold/occupied nights.
+-- OSG semantic occupancy reference v0.2
+-- Pre-freeze reference SQL. Requires:
+-- - osg_schema_v0.96_stay_policy_patch.sql
+-- - osg_schema_v0.97_availability_impact_patch.sql
+-- Goal: distinguish physical capacity, sellable capacity and actual occupied nights.
 
--- Assumptions:
--- 1. A unit-night is defined by property-local operational stay window:
---    [local_date + checkout_time, next_local_date + checkout_time)
---    for availability purposes.
--- 2. A unit-night is NON-SELLABLE if an active AvailabilityBlock overlaps the
---    operational window in a way that materially prevents sale/occupancy.
--- 3. Detailed partial-block policy is resolved through reason/configuration;
---    current reference treats any overlapping block marked sellability_impact=true
---    as non-sellable.
--- 4. Occupied nights come from StaySegment actual execution, not Reservation plan.
+-- Business semantics:
+-- 1. Unit-night D uses the property-local stay window:
+--    [D at default_checkin_time, D+1 at default_checkout_time).
+-- 2. A unit-night is NON-SELLABLE when an ACTIVE AvailabilityBlock with
+--    sellability_impact=true overlaps that operational window.
+-- 3. Actual occupancy comes from StaySegment execution, not Reservation plan.
+-- 4. Physical capacity, sellable capacity and occupancy are separate facts.
 
 create or replace view osg_property_stay_policy_current as
 select distinct on (p.id)
@@ -30,7 +29,6 @@ where spp.active = true
   and (spp.valid_to is null or spp.valid_to >= current_date)
 order by p.id, spp.valid_from desc, spp.version_no desc;
 
--- Historical helper function: returns the policy valid for a given local date.
 create or replace function osg_property_stay_policy_for_date(
   p_property_id uuid,
   p_local_date date
@@ -64,8 +62,6 @@ as $$
   limit 1;
 $$;
 
--- Reference fact generator for a bounded date range.
--- This function is intentionally explicit instead of materializing infinite calendar rows.
 create or replace function osg_unit_night_facts(
   p_property_id uuid,
   p_from_date date,
@@ -102,11 +98,13 @@ begin
       raise exception 'STAY_POLICY_NOT_FOUND property=% date=%', p_property_id, d;
     end if;
 
-    start_ts := ((d::text || ' ' || pol.default_checkout_time::text)::timestamp at time zone pol.timezone);
+    -- Night D begins at local check-in D and ends at local check-out D+1.
+    start_ts := ((d::text || ' ' || pol.default_checkin_time::text)::timestamp at time zone pol.timezone);
     end_ts   := (((d + 1)::text || ' ' || pol.default_checkout_time::text)::timestamp at time zone pol.timezone);
 
     for u in
-      select un.organization_id, un.property_id, un.id, un.lifecycle_status
+      select un.organization_id, un.property_id, un.id, un.lifecycle_status,
+             un.commissioned_at, un.retired_at
       from unit un
       where un.property_id = p_property_id
     loop
@@ -116,17 +114,25 @@ begin
       local_night_date := d;
       operational_start_at := start_ts;
       operational_end_at := end_ts;
-      physical_capacity := (u.lifecycle_status in ('ACTIVE','OUT_OF_SERVICE'));
+
+      -- Physical capacity is historical: planned/not-yet-commissioned and retired
+      -- units must not inflate old/new denominators.
+      physical_capacity :=
+        u.lifecycle_status <> 'PLANNED'
+        and (u.commissioned_at is null or u.commissioned_at <= d)
+        and (u.retired_at is null or u.retired_at > d);
 
       sellable_capacity := physical_capacity
+        and u.lifecycle_status <> 'OUT_OF_SERVICE'
         and not exists (
           select 1
           from availability_block ab
           where ab.organization_id = u.organization_id
             and ab.unit_id = u.id
-            and ab.status in ('ACTIVE','OPEN')
-            and tstzrange(ab.start_at, ab.end_at, '[)') && tstzrange(start_ts, end_ts, '[)')
-            and coalesce((ab.metadata->>'sellability_impact')::boolean, true) = true
+            and ab.status = 'ACTIVE'
+            and ab.sellability_impact = true
+            and tstzrange(ab.start_at, ab.end_at, '[)')
+                && tstzrange(start_ts, end_ts, '[)')
         );
 
       occupied := exists (
@@ -135,7 +141,8 @@ begin
         where ss.organization_id = u.organization_id
           and ss.unit_id = u.id
           and ss.status = 'ACTIVE'
-          and tstzrange(ss.start_at, ss.end_at, '[)') && tstzrange(start_ts, end_ts, '[)')
+          and tstzrange(ss.start_at, ss.end_at, '[)')
+              && tstzrange(start_ts, end_ts, '[)')
       );
 
       return next;
@@ -144,15 +151,23 @@ begin
 end;
 $$;
 
--- Example metric query:
+-- Canonical metric examples:
+-- Occupancy = occupied sellable unit-nights / sellable unit-nights.
+-- Physical utilization = occupied unit-nights / physical unit-nights.
+--
 -- select
---   sum(case when sellable_capacity then 1 else 0 end) as sellable_unit_nights,
---   sum(case when occupied then 1 else 0 end) as occupied_unit_nights,
---   sum(case when occupied then 1 else 0 end)::numeric
---     / nullif(sum(case when sellable_capacity then 1 else 0 end),0) as occupancy
+--   count(*) filter (where sellable_capacity) as sellable_unit_nights,
+--   count(*) filter (where occupied and sellable_capacity) as occupied_sellable_unit_nights,
+--   count(*) filter (where physical_capacity) as physical_unit_nights,
+--   count(*) filter (where occupied) as occupied_unit_nights,
+--   count(*) filter (where occupied and sellable_capacity)::numeric
+--     / nullif(count(*) filter (where sellable_capacity),0) as occupancy,
+--   count(*) filter (where occupied)::numeric
+--     / nullif(count(*) filter (where physical_capacity),0) as physical_utilization
 -- from osg_unit_night_facts(<property_id>, date '2026-09-01', date '2026-09-30');
 
 -- Important:
--- Reservation confirmation is not used as occupancy truth.
--- Actual StaySegment determines physical occupancy.
--- Sellability is not inferred from lack of booking; it is an independent fact.
+-- - Reservation confirmation is not occupancy truth.
+-- - Lack of booking does not mean sellable.
+-- - Occupied + non-sellable is possible in an emergency/incident and should be
+--   surfaced as a data/operations conflict rather than silently normalized.
