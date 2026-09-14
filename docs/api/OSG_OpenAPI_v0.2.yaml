@@ -1,0 +1,486 @@
+openapi: 3.1.0
+info:
+  title: OSG API
+  version: 0.2.0
+  description: >-
+    Pre-freeze API contract for Operating System of Glamping.
+    Commands mutate authoritative domain state; semantic/query endpoints expose projections.
+servers:
+  - url: https://api.example.invalid/v1
+security:
+  - bearerAuth: []
+
+paths:
+  /properties:
+    get:
+      operationId: listProperties
+      tags: [Property]
+      responses:
+        '200':
+          description: Accessible properties
+
+  /properties/{propertyId}/command-center:
+    get:
+      operationId: getCommandCenter
+      tags: [Operations]
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      responses:
+        '200': { description: Command Center projection }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /reservations:
+    get:
+      operationId: listReservations
+      tags: [Reservations]
+      parameters:
+        - in: query
+          name: property_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: Reservation list }
+    post:
+      operationId: createReservation
+      tags: [Reservations]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateReservationCommand' }
+      responses:
+        '201': { description: Created }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /reservations/{reservationId}:
+    get:
+      operationId: getReservation
+      tags: [Reservations]
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+      responses:
+        '200': { description: Reservation aggregate/query view }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /reservations/{reservationId}/cancel:
+    post:
+      operationId: cancelReservation
+      tags: [Reservations]
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200': { description: Cancelled according to commercial policy snapshot }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /stays/{stayId}/check-in:
+    post:
+      operationId: checkInStay
+      tags: [Stays]
+      parameters:
+        - $ref: '#/components/parameters/StayId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200': { description: Checked in }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /stays/{stayId}/check-out:
+    post:
+      operationId: checkOutStay
+      tags: [Stays]
+      parameters:
+        - $ref: '#/components/parameters/StayId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200': { description: Checked out; downstream turnover event emitted }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /stays/{stayId}/relocate:
+    post:
+      operationId: relocateStay
+      tags: [Stays]
+      parameters:
+        - $ref: '#/components/parameters/StayId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_unit_id, effective_at, reason]
+              properties:
+                target_unit_id: { type: string, format: uuid }
+                effective_at: { type: string, format: date-time }
+                reason: { type: string }
+      responses:
+        '200': { description: StaySegment history updated transactionally }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /turnovers:
+    get:
+      operationId: listTurnovers
+      tags: [Operations]
+      parameters:
+        - in: query
+          name: property_id
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Turnovers projection }
+
+  /turnovers/{turnoverId}/ready:
+    post:
+      operationId: markTurnoverReady
+      tags: [Operations]
+      parameters:
+        - in: path
+          name: turnoverId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200': { description: Unit preparation marked ready }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /incidents:
+    post:
+      operationId: reportIncident
+      tags: [Operations]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '201': { description: Incident created; automation may block inventory }
+
+  /incidents/{incidentId}/resolve:
+    post:
+      operationId: resolveIncident
+      tags: [Operations]
+      parameters:
+        - in: path
+          name: incidentId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Incident resolved; unblock workflow evaluated }
+
+  /service-bookings:
+    post:
+      operationId: createServiceBooking
+      tags: [Experience]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '201': { description: Service booking created }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /folios/{folioId}:
+    get:
+      operationId: getFolio
+      tags: [Commerce]
+      parameters:
+        - in: path
+          name: folioId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Folio with derived balance }
+
+  /folios/{folioId}/charges:
+    post:
+      operationId: addCharge
+      tags: [Commerce]
+      parameters:
+        - in: path
+          name: folioId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: Charge created }
+
+  /payments:
+    post:
+      operationId: recordPayment
+      tags: [Commerce]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: Payment recorded; CashMovement remains separate }
+
+  /financial/economic-events:
+    post:
+      operationId: createEconomicEvent
+      tags: [FinancialTruth]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '201': { description: Draft EconomicEvent created }
+
+  /financial/economic-events/{eventId}/post:
+    post:
+      operationId: postEconomicEvent
+      tags: [FinancialTruth]
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200': { description: Posted atomically after allocation validation }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /financial/economic-events/{eventId}/reverse:
+    post:
+      operationId: reverseEconomicEvent
+      tags: [FinancialTruth]
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, economic_date, reason]
+              properties:
+                amount: { $ref: '#/components/schemas/MoneyAmount' }
+                economic_date: { type: string, format: date }
+                reason: { type: string }
+      responses:
+        '201': { description: Reversal/adjustment event created with preserved category }
+
+  /financial/settlements:
+    get:
+      operationId: listSettlements
+      tags: [FinancialTruth]
+      responses:
+        '200': { description: Derived settlement balances }
+
+  /semantic/properties/{propertyId}/performance:
+    get:
+      operationId: getPropertyPerformance
+      tags: [Semantic]
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200': { description: Economic + revenue + capacity KPI bundle }
+
+  /semantic/properties/{propertyId}/units/performance:
+    get:
+      operationId: getUnitPerformance
+      tags: [Semantic]
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200': { description: Unit economics and utilization }
+
+  /semantic/properties/{propertyId}/operations/today:
+    get:
+      operationId: getOperationsToday
+      tags: [Semantic]
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      responses:
+        '200': { description: Arrivals, departures, turnovers, incidents, services }
+
+  /semantic/properties/{propertyId}/cash-flow:
+    get:
+      operationId: getPropertyCashFlow
+      tags: [Semantic]
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+        - $ref: '#/components/parameters/FromDateTime'
+        - $ref: '#/components/parameters/ToDateTime'
+      responses:
+        '200': { description: Cash-only view; not economic result }
+
+  /semantic/properties/{propertyId}/data-quality:
+    get:
+      operationId: getPropertyDataQuality
+      tags: [Semantic]
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      responses:
+        '200': { description: Open issues, anomalies and confidence }
+
+  /semantic/stays/{stayId}/economics:
+    get:
+      operationId: getStayEconomics
+      tags: [Semantic]
+      parameters:
+        - $ref: '#/components/parameters/StayId'
+      responses:
+        '200': { description: Stay contribution margin and source facts }
+
+  /semantic/metrics/{metricCode}/explain:
+    get:
+      operationId: explainMetric
+      tags: [Semantic]
+      parameters:
+        - in: path
+          name: metricCode
+          required: true
+          schema: { type: string }
+        - in: query
+          name: property_id
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200': { description: Why-this-number drilldown }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PropertyId:
+      in: path
+      name: propertyId
+      required: true
+      schema: { type: string, format: uuid }
+    ReservationId:
+      in: path
+      name: reservationId
+      required: true
+      schema: { type: string, format: uuid }
+    StayId:
+      in: path
+      name: stayId
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 200 }
+    CorrelationId:
+      in: header
+      name: X-Correlation-ID
+      required: false
+      schema: { type: string, format: uuid }
+    IfMatch:
+      in: header
+      name: If-Match
+      required: true
+      description: Expected aggregate row_version/ETag for optimistic concurrency.
+      schema: { type: string }
+    FromDate:
+      in: query
+      name: from
+      required: true
+      schema: { type: string, format: date }
+    ToDate:
+      in: query
+      name: to
+      required: true
+      schema: { type: string, format: date }
+    FromDateTime:
+      in: query
+      name: from
+      required: true
+      schema: { type: string, format: date-time }
+    ToDateTime:
+      in: query
+      name: to
+      required: true
+      schema: { type: string, format: date-time }
+
+  schemas:
+    CreateReservationCommand:
+      type: object
+      required: [property_id, channel_id, currency, items]
+      properties:
+        property_id: { type: string, format: uuid }
+        channel_id: { type: string, format: uuid }
+        primary_guest_id: { type: string, format: uuid }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [unit_type_id, arrival_date, departure_date, adults]
+            properties:
+              unit_type_id: { type: string, format: uuid }
+              assigned_unit_id: { type: string, format: uuid }
+              arrival_date: { type: string, format: date }
+              departure_date: { type: string, format: date }
+              adults: { type: integer, minimum: 0 }
+              children: { type: integer, minimum: 0, default: 0 }
+              infants: { type: integer, minimum: 0, default: 0 }
+              pets: { type: integer, minimum: 0, default: 0 }
+
+    MoneyAmount:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: string, pattern: '^\\d+(\\.\\d{1,2})?$' }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+
+    Error:
+      type: object
+      required: [code, message, correlation_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        correlation_id: { type: string, format: uuid }
+        details: { type: object, additionalProperties: true }
+
+  responses:
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Domain/concurrency conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Validation/domain invariant failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
