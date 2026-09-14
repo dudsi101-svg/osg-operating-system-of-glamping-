@@ -1,6 +1,6 @@
--- OSG Financial Truth semantic layer v0.1
--- PRE-FREEZE reference SQL.
--- Principle: managerial economic result is driven by POSTED EconomicEvent Allocations,
+-- OSG Financial Truth semantic layer v0.2
+-- PRE-FREEZE reference SQL. Requires v0.98 economic direction patch.
+-- Managerial economic result is driven by POSTED EconomicEvent Allocations,
 -- not by FinancialDocument totals and not by CashMovement.
 
 -- -----------------------------------------------------------------
@@ -24,6 +24,8 @@ select
   a.paid_by_party_id,
   a.economic_bearer_party_id,
   ee.event_type,
+  ee.effect_direction,
+  ee.reverses_event_id,
   ee.economic_date,
   ee.currency,
   ee.status as economic_event_status,
@@ -34,19 +36,29 @@ select
   a.allocation_method,
   a.rationale,
 
+  case when ee.effect_direction='REVERSAL' then -1 else 1 end as direction_multiplier,
+
+  -- Category amount remains in its original category; REVERSAL changes polarity.
+  a.amount * (case when ee.effect_direction='REVERSAL' then -1 else 1 end)
+    as signed_category_amount,
+
   case
-    when a.classification = 'REVENUE' then a.amount
-    when a.classification = 'OPEX' then -a.amount
+    when a.classification = 'REVENUE' then
+      a.amount * (case when ee.effect_direction='REVERSAL' then -1 else 1 end)
+    when a.classification = 'OPEX' then
+      -a.amount * (case when ee.effect_direction='REVERSAL' then -1 else 1 end)
     else 0::numeric
   end as operating_result_effect,
 
   case
-    when a.classification = 'CAPEX' then a.amount
+    when a.classification = 'CAPEX' then
+      a.amount * (case when ee.effect_direction='REVERSAL' then -1 else 1 end)
     else 0::numeric
   end as capex_amount,
 
   case
-    when a.classification = 'NON_BUSINESS' then a.amount
+    when a.classification = 'NON_BUSINESS' then
+      a.amount * (case when ee.effect_direction='REVERSAL' then -1 else 1 end)
     else 0::numeric
   end as non_business_amount,
 
@@ -76,10 +88,10 @@ returns table (
   property_id uuid,
   from_date date,
   to_date date,
-  allocated_revenue numeric,
-  allocated_opex numeric,
+  net_allocated_revenue numeric,
+  net_allocated_opex numeric,
   economic_operating_result numeric,
-  capex numeric,
+  net_capex numeric,
   non_business_excluded numeric,
   weighted_data_confidence numeric
 )
@@ -90,18 +102,18 @@ as $$
     p_property_id,
     p_from_date,
     p_to_date,
-    coalesce(sum(af.amount) filter (where af.classification='REVENUE'),0),
-    coalesce(sum(af.amount) filter (where af.classification='OPEX'),0),
+    coalesce(sum(af.signed_category_amount) filter (where af.classification='REVENUE'),0),
+    coalesce(sum(af.signed_category_amount) filter (where af.classification='OPEX'),0),
     coalesce(sum(af.operating_result_effect),0),
     coalesce(sum(af.capex_amount),0),
     coalesce(sum(af.non_business_amount),0),
     case
-      when coalesce(sum(af.amount) filter (where af.classification in ('REVENUE','OPEX','CAPEX')),0)=0
-        then null
+      when coalesce(sum(abs(af.amount)) filter (
+        where af.classification in ('REVENUE','OPEX','CAPEX')),0)=0 then null
       else
-        sum(af.amount * af.confidence_weight)
+        sum(abs(af.amount) * af.confidence_weight)
           filter (where af.classification in ('REVENUE','OPEX','CAPEX'))
-        / nullif(sum(af.amount)
+        / nullif(sum(abs(af.amount))
           filter (where af.classification in ('REVENUE','OPEX','CAPEX')),0)
     end
   from osg_allocation_fact af
@@ -119,13 +131,13 @@ create or replace function osg_unit_economics(
 )
 returns table (
   unit_id uuid,
-  revenue numeric,
-  direct_opex numeric,
-  shared_opex numeric,
-  overhead numeric,
+  net_revenue numeric,
+  net_direct_opex numeric,
+  net_shared_opex numeric,
+  net_overhead numeric,
   contribution_margin numeric,
   operating_margin numeric,
-  capex numeric,
+  net_capex numeric,
   data_confidence numeric
 )
 language sql
@@ -133,26 +145,28 @@ stable
 as $$
   select
     af.unit_id,
-    coalesce(sum(af.amount) filter (where af.classification='REVENUE'),0) as revenue,
-    coalesce(sum(af.amount) filter (
-      where af.classification='OPEX' and af.allocation_type='DIRECT'),0) as direct_opex,
-    coalesce(sum(af.amount) filter (
-      where af.classification='OPEX' and af.allocation_type='SHARED'),0) as shared_opex,
-    coalesce(sum(af.amount) filter (
-      where af.classification='OPEX' and af.allocation_type='OVERHEAD'),0) as overhead,
-    coalesce(sum(af.amount) filter (where af.classification='REVENUE'),0)
-      - coalesce(sum(af.amount) filter (
+    coalesce(sum(af.signed_category_amount) filter (
+      where af.classification='REVENUE'),0) as net_revenue,
+    coalesce(sum(af.signed_category_amount) filter (
+      where af.classification='OPEX' and af.allocation_type='DIRECT'),0) as net_direct_opex,
+    coalesce(sum(af.signed_category_amount) filter (
+      where af.classification='OPEX' and af.allocation_type='SHARED'),0) as net_shared_opex,
+    coalesce(sum(af.signed_category_amount) filter (
+      where af.classification='OPEX' and af.allocation_type='OVERHEAD'),0) as net_overhead,
+    coalesce(sum(af.signed_category_amount) filter (where af.classification='REVENUE'),0)
+      - coalesce(sum(af.signed_category_amount) filter (
           where af.classification='OPEX' and af.allocation_type='DIRECT'),0)
       as contribution_margin,
-    coalesce(sum(af.amount) filter (where af.classification='REVENUE'),0)
-      - coalesce(sum(af.amount) filter (
+    coalesce(sum(af.signed_category_amount) filter (where af.classification='REVENUE'),0)
+      - coalesce(sum(af.signed_category_amount) filter (
           where af.classification='OPEX' and af.allocation_type in ('DIRECT','SHARED','OVERHEAD')),0)
       as operating_margin,
-    coalesce(sum(af.amount) filter (where af.classification='CAPEX'),0) as capex,
-    case when sum(af.amount) filter (where af.classification in ('REVENUE','OPEX','CAPEX')) > 0
-      then sum(af.amount * af.confidence_weight)
+    coalesce(sum(af.capex_amount),0) as net_capex,
+    case when sum(abs(af.amount)) filter (
+      where af.classification in ('REVENUE','OPEX','CAPEX')) > 0
+      then sum(abs(af.amount) * af.confidence_weight)
         filter (where af.classification in ('REVENUE','OPEX','CAPEX'))
-        / nullif(sum(af.amount)
+        / nullif(sum(abs(af.amount))
           filter (where af.classification in ('REVENUE','OPEX','CAPEX')),0)
       else null end as data_confidence
   from osg_allocation_fact af
@@ -168,8 +182,8 @@ $$;
 create or replace function osg_stay_contribution_margin(p_stay_id uuid)
 returns table (
   stay_id uuid,
-  revenue numeric,
-  direct_variable_cost numeric,
+  net_revenue numeric,
+  net_direct_variable_cost numeric,
   contribution_margin numeric,
   data_confidence numeric
 )
@@ -178,16 +192,16 @@ stable
 as $$
   select
     p_stay_id,
-    coalesce(sum(af.amount) filter (where af.classification='REVENUE'),0),
-    coalesce(sum(af.amount) filter (
+    coalesce(sum(af.signed_category_amount) filter (where af.classification='REVENUE'),0),
+    coalesce(sum(af.signed_category_amount) filter (
       where af.classification='OPEX' and af.allocation_type='DIRECT'),0),
-    coalesce(sum(af.amount) filter (where af.classification='REVENUE'),0)
-      - coalesce(sum(af.amount) filter (
+    coalesce(sum(af.signed_category_amount) filter (where af.classification='REVENUE'),0)
+      - coalesce(sum(af.signed_category_amount) filter (
           where af.classification='OPEX' and af.allocation_type='DIRECT'),0),
-    case when sum(af.amount) filter (where af.classification in ('REVENUE','OPEX')) > 0
-      then sum(af.amount * af.confidence_weight)
+    case when sum(abs(af.amount)) filter (where af.classification in ('REVENUE','OPEX')) > 0
+      then sum(abs(af.amount) * af.confidence_weight)
         filter (where af.classification in ('REVENUE','OPEX'))
-        / nullif(sum(af.amount) filter (where af.classification in ('REVENUE','OPEX')),0)
+        / nullif(sum(abs(af.amount)) filter (where af.classification in ('REVENUE','OPEX')),0)
       else null end
   from osg_allocation_fact af
   where af.stay_id = p_stay_id;
@@ -222,8 +236,7 @@ group by
   se.currency, se.amount;
 
 -- -----------------------------------------------------------------
--- Economic vs cash are intentionally separate.
--- Cash flow reports must query CashMovement.
--- Accounting reports may query FinancialDocument/accounting integration facts.
--- This semantic layer represents managerial/economic truth only.
+-- Economic vs cash remain intentionally separate.
+-- A cost reversal stays in OPEX with opposite direction; it is not disguised
+-- as REVENUE. A revenue reversal stays REVENUE with opposite direction.
 -- -----------------------------------------------------------------
