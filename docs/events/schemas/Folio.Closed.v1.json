@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osg.local/schemas/events/Folio.Closed.v1.json",
+  "title": "Folio.Closed payload v1",
+  "type": "object",
+  "required": ["folio_id","reservation_id","currency","net_charges","net_collected","balance_due","closed_at"],
+  "properties": {
+    "folio_id": {"type": "string", "format": "uuid"},
+    "reservation_id": {"type": "string", "format": "uuid"},
+    "stay_id": {"type": ["string","null"], "format": "uuid"},
+    "currency": {"type": "string", "minLength": 3, "maxLength": 3},
+    "net_charges": {"type": "number"},
+    "net_collected": {"type": "number"},
+    "balance_due": {"type": "number"},
+    "closed_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}
