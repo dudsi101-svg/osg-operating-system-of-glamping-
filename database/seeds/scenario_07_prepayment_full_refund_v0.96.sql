@@ -40,6 +40,14 @@ values ('00000000-0000-7000-8000-000000001424','00000000-0000-7000-8000-00000000
 update reservation set commercial_status='CANCELLED',updated_at='2026-10-01T10:00:00+02' where id='00000000-0000-7000-8000-000000001410';
 update reservation_item set status='CANCELLED' where id='00000000-0000-7000-8000-000000001411';
 
+-- The original commercial accommodation charge remains in history. A linked
+-- reversing charge brings the Folio commercial obligation back to zero.
+insert into charge (
+  id,organization_id,folio_id,charge_type,description,quantity,unit_price,gross_amount,status,reverses_charge_id
+) values (
+'00000000-0000-7000-8000-000000001429','00000000-0000-7000-8000-000000000001','00000000-0000-7000-8000-000000001420',
+'ACCOMMODATION','Reversal — full-refund cancellation',1,-1000,-1000,'POSTED','00000000-0000-7000-8000-000000001421');
+
 insert into refund (id,organization_id,payment_id,amount,currency,status,refunded_at,external_reference,reason)
 values ('00000000-0000-7000-8000-000000001425','00000000-0000-7000-8000-000000000001','00000000-0000-7000-8000-000000001422',1000,'PLN','CONFIRMED','2026-10-01T10:10:00+02','REFUND-TEST-001','Cancellation within full-refund window');
 
@@ -49,8 +57,7 @@ insert into cash_movement (id,organization_id,from_money_account_id,amount,curre
 values ('00000000-0000-7000-8000-000000001426','00000000-0000-7000-8000-000000000001','00000000-0000-7000-8000-000000000601',1000,'PLN','2026-10-01T10:10:00+02','BANK-REFUND-TEST-001','VERIFIED');
 
 -- Because the stay never happened and no accommodation revenue was recognized,
--- the cash refund is NOT modeled as a second operating cost/revenue reversal here.
--- It closes the prepayment liability/commerce flow.
+-- the cash refund is not a second operating expense. It unwinds the prepayment.
 
 insert into reconciliation_link (id,organization_id,cash_movement_id,payment_id,match_status,matched_amount,confidence,rationale)
 values ('00000000-0000-7000-8000-000000001427','00000000-0000-7000-8000-000000000001','00000000-0000-7000-8000-000000001424','00000000-0000-7000-8000-000000001422','MATCHED',1000,'VERIFIED','Prepayment received');
@@ -58,9 +65,14 @@ values ('00000000-0000-7000-8000-000000001427','00000000-0000-7000-8000-00000000
 insert into reconciliation_link (id,organization_id,cash_movement_id,refund_id,match_status,matched_amount,confidence,rationale)
 values ('00000000-0000-7000-8000-000000001428','00000000-0000-7000-8000-000000000001','00000000-0000-7000-8000-000000001426','00000000-0000-7000-8000-000000001425','MATCHED',1000,'VERIFIED','Full refund paid');
 
+update folio
+set status='CLOSED', closed_at='2026-10-01T10:11:00+02'
+where id='00000000-0000-7000-8000-000000001420';
+
 commit;
 
 -- Expected:
+-- Gross Charges: +1000 original, -1000 reversal => net commercial obligation 0.
 -- Cash in = 1000, cash out = 1000.
 -- Recognized accommodation revenue = 0.
 -- No Stay exists.
