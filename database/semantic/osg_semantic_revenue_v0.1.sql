@@ -1,12 +1,12 @@
--- OSG Revenue semantic reference v0.2
+-- OSG Revenue semantic reference v0.3
 -- Depends on:
 -- - osg_semantic_occupancy_v0.2
+-- - osg_semantic_accommodation_nights_v0.1
 -- - osg_semantic_financial_truth_v0.2
 -- PRE-FREEZE reference. Not yet materialized/optimized.
 
 -- Revenue truth is derived from POSTED revenue Allocations.
--- EconomicEvent/Charge identify origin and category, but Allocation decides
--- what belongs economically to the Property/Unit/Stay.
+-- Commercial accommodation nights are distinct from physical StaySegment utilization.
 
 create or replace function osg_property_revenue_metrics(
   p_property_id uuid,
@@ -19,8 +19,9 @@ returns table (
   to_date date,
   accommodation_revenue numeric,
   total_revenue numeric,
-  sold_unit_nights bigint,
-  sellable_unit_nights bigint,
+  commercial_accommodation_nights bigint,
+  raw_sellable_unit_nights bigint,
+  effective_capacity_unit_nights bigint,
   adr numeric,
   revpar numeric,
   trevpar numeric
@@ -28,15 +29,9 @@ returns table (
 language sql
 stable
 as $$
-with night_facts as (
+with occ as (
   select *
-  from osg_unit_night_facts(p_property_id, p_from_date, p_to_date)
-),
-capacity as (
-  select
-    count(*) filter (where occupied) as sold_unit_nights,
-    count(*) filter (where sellable_capacity) as sellable_unit_nights
-  from night_facts
+  from osg_property_occupancy_metrics(p_property_id,p_from_date,p_to_date,false)
 ),
 recognized as (
   select
@@ -63,12 +58,13 @@ select
   p_to_date,
   r.accommodation_revenue,
   r.total_revenue,
-  c.sold_unit_nights,
-  c.sellable_unit_nights,
-  r.accommodation_revenue / nullif(c.sold_unit_nights,0) as adr,
-  r.accommodation_revenue / nullif(c.sellable_unit_nights,0) as revpar,
-  r.total_revenue / nullif(c.sellable_unit_nights,0) as trevpar
-from recognized r cross join capacity c;
+  o.resolved_commercial_nights,
+  o.sellable_unit_nights,
+  o.effective_capacity_nights,
+  r.accommodation_revenue / nullif(o.resolved_commercial_nights,0) as adr,
+  r.accommodation_revenue / nullif(o.effective_capacity_nights,0) as revpar,
+  r.total_revenue / nullif(o.effective_capacity_nights,0) as trevpar
+from recognized r cross join occ o;
 $$;
 
 -- -----------------------------------------------------------------
@@ -113,7 +109,6 @@ $$;
 
 -- -----------------------------------------------------------------
 -- Stay revenue / upsell metrics.
--- Only economically allocated revenue linked to a Stay is counted.
 -- -----------------------------------------------------------------
 create or replace function osg_stay_revenue_metrics(p_stay_id uuid)
 returns table (
@@ -156,7 +151,7 @@ from r cross join s;
 $$;
 
 -- -----------------------------------------------------------------
--- Period upsell per eligible completed stay/booking execution.
+-- Period upsell per eligible completed stay.
 -- -----------------------------------------------------------------
 create or replace function osg_property_upsell_metrics(
   p_property_id uuid,
@@ -203,8 +198,8 @@ from upsell;
 $$;
 
 -- Important:
--- - Reversals reduce the original category rather than being relabeled.
--- - ADR denominator is actual occupied unit-nights.
--- - RevPAR/TRevPAR denominator is sellable unit-nights.
--- - Booking-channel metrics use booking-created period and must not be confused
---   with stay-date/revenue-recognition metrics.
+-- - Reversals reduce original category rather than being relabeled.
+-- - ADR denominator = resolved FINAL commercial accommodation nights.
+-- - RevPAR/TRevPAR denominator = effective commercial capacity nights.
+-- - raw sellable capacity remains exposed for explainability/data-quality analysis.
+-- - Physical utilization remains a separate operational metric.
