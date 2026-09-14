@@ -2,9 +2,6 @@
 -- PRE-FREEZE / DEV candidate.
 -- Requires semantic folio balance view for close validation.
 
--- ---------------------------------------------------------------
--- Payment currency must equal Folio currency in Release 1.
--- ---------------------------------------------------------------
 create or replace function osg_guard_payment_folio_currency()
 returns trigger language plpgsql as $$
 declare
@@ -14,14 +11,10 @@ begin
   from folio
   where organization_id=new.organization_id and id=new.folio_id;
 
-  if not found then
-    raise exception 'OSG_FOLIO_NOT_FOUND';
-  end if;
-
+  if not found then raise exception 'OSG_FOLIO_NOT_FOUND'; end if;
   if new.currency <> v_folio_currency then
     raise exception 'OSG_FOLIO_CURRENCY_MISMATCH expected=% actual=%',v_folio_currency,new.currency;
   end if;
-
   return new;
 end $$;
 
@@ -29,10 +22,6 @@ create trigger trg_payment_folio_currency
 before insert or update on payment
 for each row execute function osg_guard_payment_folio_currency();
 
--- ---------------------------------------------------------------
--- Refund currency must equal original Payment currency.
--- Refund total cannot exceed Payment amount.
--- ---------------------------------------------------------------
 create or replace function osg_guard_refund_payment_currency_and_amount()
 returns trigger language plpgsql as $$
 declare
@@ -45,10 +34,7 @@ begin
   where organization_id=new.organization_id and id=new.payment_id
   for update;
 
-  if not found then
-    raise exception 'OSG_PAYMENT_NOT_FOUND';
-  end if;
-
+  if not found then raise exception 'OSG_PAYMENT_NOT_FOUND'; end if;
   if new.currency <> v_payment_currency then
     raise exception 'OSG_REFUND_CURRENCY_MISMATCH expected=% actual=%',v_payment_currency,new.currency;
   end if;
@@ -63,7 +49,6 @@ begin
   if new.status='CONFIRMED' and v_other_refunds + new.amount > v_payment_amount then
     raise exception 'OSG_REFUND_EXCEEDS_PAYMENT';
   end if;
-
   return new;
 end $$;
 
@@ -71,17 +56,15 @@ create trigger trg_refund_payment_currency_and_amount
 before insert or update on refund
 for each row execute function osg_guard_refund_payment_currency_and_amount();
 
--- ---------------------------------------------------------------
--- Charge/Folio currency is implicit in Charge schema (no separate currency).
--- Close guard resolves canonical commercial balance.
--- ---------------------------------------------------------------
 create or replace function osg_guard_folio_close_balance()
 returns trigger language plpgsql as $$
 declare
   v_balance numeric;
+  v_pending integer;
 begin
   if old.status <> 'CLOSED' and new.status='CLOSED' then
-    select balance_due into v_balance
+    select balance_due,pending_commercial_items
+      into v_balance,v_pending
     from osg_folio_balance
     where organization_id=new.organization_id and folio_id=new.id;
 
@@ -93,17 +76,18 @@ begin
       raise exception 'OSG_FOLIO_BALANCE_NOT_ZERO balance=%',v_balance;
     end if;
 
-    if new.closed_at is null then
-      new.closed_at := now();
+    if coalesce(v_pending,0) > 0 then
+      raise exception 'OSG_FOLIO_PENDING_ITEMS count=%',v_pending;
     end if;
+
+    if new.closed_at is null then new.closed_at:=now(); end if;
   end if;
 
-  -- Reopening a CLOSED Folio must occur through explicit privileged/domain workflow.
   if old.status='CLOSED' and new.status='OPEN' then
     if coalesce(current_setting('osg.controlled_folio_reopen',true),'off') <> 'on' then
       raise exception 'OSG_CONTROLLED_FOLIO_REOPEN_REQUIRED';
     end if;
-    new.closed_at := null;
+    new.closed_at:=null;
   end if;
 
   return new;
@@ -113,5 +97,5 @@ create trigger trg_folio_close_balance
 before update on folio
 for each row execute function osg_guard_folio_close_balance();
 
--- A close command should lock Folio before changing status and create a DomainEvent/Outbox record.
--- The DB trigger is fail-closed protection, not the full application workflow.
+-- Domain close workflow still must lock Folio, authorize, increment row_version
+-- and emit Folio.Closed through outbox. These triggers are fail-closed guards.
