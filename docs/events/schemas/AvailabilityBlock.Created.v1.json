@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osg.local/schemas/events/AvailabilityBlock.Created.v1.json",
+  "title": "AvailabilityBlock.Created payload v1",
+  "type": "object",
+  "required": [
+    "availability_block_id",
+    "property_id",
+    "start_at",
+    "end_at",
+    "reason_type",
+    "sellability_impact",
+    "operations_impact",
+    "guest_impact"
+  ],
+  "properties": {
+    "availability_block_id": {"type": "string", "format": "uuid"},
+    "property_id": {"type": "string", "format": "uuid"},
+    "unit_id": {"type": ["string","null"], "format": "uuid"},
+    "resource_id": {"type": ["string","null"], "format": "uuid"},
+    "source_incident_id": {"type": ["string","null"], "format": "uuid"},
+    "start_at": {"type": "string", "format": "date-time"},
+    "end_at": {"type": "string", "format": "date-time"},
+    "reason_type": {"type": "string"},
+    "sellability_impact": {"type": "boolean"},
+    "operations_impact": {"type": "boolean"},
+    "guest_impact": {"type": "boolean"}
+  },
+  "oneOf": [
+    {"required": ["unit_id"]},
+    {"required": ["resource_id"]}
+  ],
+  "additionalProperties": false
+}
