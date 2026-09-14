@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osg.local/schemas/events/Turnover.Ready.v1.json",
+  "title": "Turnover.Ready payload v1",
+  "type": "object",
+  "required": ["turnover_id","property_id","unit_id","ready_at"],
+  "properties": {
+    "turnover_id": {"type": "string", "format": "uuid"},
+    "property_id": {"type": "string", "format": "uuid"},
+    "unit_id": {"type": "string", "format": "uuid"},
+    "previous_stay_id": {"type": ["string","null"], "format": "uuid"},
+    "next_stay_id": {"type": ["string","null"], "format": "uuid"},
+    "ready_deadline": {"type": ["string","null"], "format": "date-time"},
+    "ready_at": {"type": "string", "format": "date-time"},
+    "completed_task_count": {"type": "integer", "minimum": 0},
+    "inspection_required": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}
