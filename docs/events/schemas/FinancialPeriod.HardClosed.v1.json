@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osg.local/schemas/events/FinancialPeriod.HardClosed.v1.json",
+  "title": "FinancialPeriod.HardClosed payload v1",
+  "type": "object",
+  "required": ["financial_period_id","period_start","period_end","closed_at"],
+  "properties": {
+    "financial_period_id": {"type": "string", "format": "uuid"},
+    "property_id": {"type": ["string","null"], "format": "uuid"},
+    "period_start": {"type": "string", "format": "date"},
+    "period_end": {"type": "string", "format": "date"},
+    "closed_at": {"type": "string", "format": "date-time"},
+    "approval_request_id": {"type": ["string","null"], "format": "uuid"}
+  },
+  "additionalProperties": false
+}
