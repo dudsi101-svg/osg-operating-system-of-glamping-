@@ -1,0 +1,139 @@
+openapi: 3.1.0
+info:
+  title: OSG API
+  version: 0.1.0
+  description: Canonical API contract skeleton for Operating System of Glamping.
+servers:
+  - url: https://api.example.invalid
+paths:
+  /properties:
+    get:
+      operationId: listProperties
+      responses:
+        '200': { description: OK }
+  /properties/{propertyId}/command-center:
+    get:
+      operationId: getCommandCenter
+      parameters:
+        - in: path
+          name: propertyId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+  /reservations:
+    get:
+      operationId: listReservations
+      responses:
+        '200': { description: OK }
+    post:
+      operationId: createReservation
+      responses:
+        '201': { description: Created }
+  /reservations/{reservationId}:
+    get:
+      operationId: getReservation
+      parameters:
+        - in: path
+          name: reservationId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+  /stays/{stayId}/check-in:
+    post:
+      operationId: checkInStay
+      parameters:
+        - in: path
+          name: stayId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Checked in }
+  /stays/{stayId}/check-out:
+    post:
+      operationId: checkOutStay
+      parameters:
+        - in: path
+          name: stayId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Checked out }
+  /turnovers:
+    get:
+      operationId: listTurnovers
+      responses:
+        '200': { description: OK }
+  /incidents:
+    post:
+      operationId: createIncident
+      responses:
+        '201': { description: Created }
+  /service-bookings:
+    post:
+      operationId: createServiceBooking
+      responses:
+        '201': { description: Created }
+  /folios/{folioId}:
+    get:
+      operationId: getFolio
+      parameters:
+        - in: path
+          name: folioId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+  /financial/economic-events:
+    post:
+      operationId: createEconomicEvent
+      responses:
+        '201': { description: Created }
+  /financial/economic-events/{eventId}/post:
+    post:
+      operationId: postEconomicEvent
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Posted }
+  /financial/settlements:
+    get:
+      operationId: listSettlements
+      responses:
+        '200': { description: OK }
+  /analytics/metrics/{metricCode}:
+    get:
+      operationId: getMetric
+      parameters:
+        - in: path
+          name: metricCode
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+components:
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        correlation_id: { type: string }
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: string, pattern: '^-?\\d+(\\.\\d{1,4})?$' }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+    EntityRef:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, format: uuid }
+security:
+  - bearerAuth: []
