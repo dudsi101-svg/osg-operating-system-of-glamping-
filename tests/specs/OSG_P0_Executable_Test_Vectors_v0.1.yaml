@@ -1,0 +1,107 @@
+version: 0.1
+suite: OSG_P0_EXECUTABLE_PROOFS
+cases:
+  - id: P0-STAY-001
+    invariant: no_overlapping_active_stay_segments_per_unit
+    arrange:
+      unit: Forest
+      existing_segment: {start: '2026-09-20T15:00:00+02:00', end: '2026-09-23T11:00:00+02:00', status: ACTIVE}
+    act:
+      insert_segment: {start: '2026-09-22T15:00:00+02:00', end: '2026-09-24T11:00:00+02:00', status: ACTIVE}
+    expect:
+      result: REJECT
+      error_code: STAY_SEGMENT_OVERLAP
+
+  - id: P0-STAY-002
+    invariant: adjacent_segments_allowed
+    arrange:
+      existing_segment: {start: '2026-09-20T15:00:00+02:00', end: '2026-09-23T11:00:00+02:00'}
+    act:
+      insert_segment: {start: '2026-09-23T11:00:00+02:00', end: '2026-09-24T11:00:00+02:00'}
+    expect: {result: ACCEPT}
+
+  - id: P0-RESOURCE-001
+    invariant: resource_capacity_not_exceeded
+    arrange:
+      resource: Sauna
+      capacity: 1
+      reservation_a: {effective_start: '2026-09-20T17:30:00+02:00', effective_end: '2026-09-20T19:45:00+02:00', capacity_used: 1}
+    act:
+      reservation_b: {effective_start: '2026-09-20T18:00:00+02:00', effective_end: '2026-09-20T19:00:00+02:00', capacity_used: 1}
+    expect:
+      result: REJECT
+      error_code: RESOURCE_CAPACITY_EXCEEDED
+
+  - id: P0-FIN-001
+    invariant: posted_event_must_be_fully_allocated
+    arrange:
+      economic_event_amount: 8000.00
+      allocations: [1600.00, 6400.00]
+    act: post
+    expect: {result: ACCEPT}
+
+  - id: P0-FIN-002
+    invariant: posting_rejects_unbalanced_allocations
+    arrange:
+      economic_event_amount: 8000.00
+      allocations: [1600.00, 6300.00]
+    act: post
+    expect:
+      result: REJECT
+      error_code: ALLOCATION_NOT_BALANCED
+
+  - id: P0-FIN-003
+    invariant: posted_event_is_immutable
+    arrange:
+      event_status: POSTED
+    act:
+      update_amount: 9000.00
+    expect:
+      result: REJECT
+      error_code: POSTED_EVENT_IMMUTABLE
+
+  - id: P0-SETTLEMENT-001
+    invariant: settlement_conservation
+    arrange:
+      source_allocation_amount: 430.00
+      paid_by: Kuba
+      economic_bearer: Glamping
+      settlement_entry: 430.00
+      applications: [200.00, 230.00]
+    expect:
+      open_balance: 0.00
+      result: ACCEPT
+
+  - id: P0-TENANT-001
+    invariant: cross_tenant_reference_forbidden
+    arrange:
+      reservation_organization: ORG_A
+      unit_organization: ORG_B
+    act: assign_unit
+    expect:
+      result: REJECT
+      error_code: CROSS_TENANT_REFERENCE
+
+  - id: P0-IDEMP-001
+    invariant: integration_effect_is_idempotent
+    arrange:
+      integration_id: PMS_A
+      external_event_id: evt_123
+    act:
+      deliveries: 5
+    expect:
+      domain_effect_count: 1
+      duplicate_deliveries: 4
+      result: ACCEPT
+
+  - id: P0-EVENT-001
+    invariant: automation_effect_is_idempotent
+    arrange:
+      automation_rule_id: turnover_on_checkout
+      trigger_event_id: event_checkout_001
+      action_key: create_turnover
+    act:
+      attempts: 3
+    expect:
+      turnover_created: 1
+      result: ACCEPT
