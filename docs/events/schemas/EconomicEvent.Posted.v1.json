@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EconomicEvent.Posted v1 payload",
+  "type": "object",
+  "required": ["economic_event_id", "event_type", "economic_date", "amount", "currency", "allocation_count"],
+  "properties": {
+    "economic_event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"type": "string"},
+    "economic_date": {"type": "string", "format": "date"},
+    "amount": {"type": "string", "pattern": "^-?\\d+(\\.\\d{1,4})?$"},
+    "currency": {"type": "string", "minLength": 3, "maxLength": 3},
+    "allocation_count": {"type": "integer", "minimum": 1},
+    "has_settlement_implication": {"type": "boolean"},
+    "period_id": {"type": ["string", "null"], "format": "uuid"}
+  },
+  "additionalProperties": false
+}
