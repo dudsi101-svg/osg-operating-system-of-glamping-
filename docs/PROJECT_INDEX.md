@@ -1,7 +1,7 @@
 # OSG — Project Documentation Index
 
 Status: kanoniczny indeks dokumentacji
-Data: 2026-09-14
+Data: 2026-09-15
 
 ## 1. Checkpointy
 - `checkpoints/OSG_02_Core_Data_Model_Checkpoint_v1.3.md`
@@ -10,38 +10,50 @@ Data: 2026-09-14
 
 ## 2. Architektura / ADR
 - `architecture/OSG_Implementation_Architecture_v0.1.md`
-- `decisions/ADR-001-relational-core-postgresql.md`
-- `decisions/ADR-002-separate-financial-truth-layers.md`
-- `decisions/ADR-003-multi-property-ready-from-day-one.md`
-- `decisions/ADR-004-api-first-and-contract-versioning.md`
-- `decisions/ADR-005-event-driven-cross-domain-coordination.md`
-- `decisions/ADR-006-pwa-first-web-delivery.md`
-- `decisions/ADR-007-uuidv7-application-generated-identifiers.md`
+- `architecture/OSG_Aggregate_and_Concurrency_Model_v0.1.md`
+- `architecture/OSG_Property_Context_Integrity_v0.1.md`
+- ADR-001 relational core/PostgreSQL
+- ADR-002 separate Financial Truth layers
+- ADR-003 multi-property from day one
+- ADR-004 API-first/versioned contracts
+- ADR-005 event-driven cross-domain coordination
+- ADR-006 PWA-first
+- ADR-007 UUIDv7 application-generated IDs
+- ADR-008 versioned PropertyStayPolicy/unit-night semantics
+- ADR-009 aggregate concurrency + idempotent commands
+- ADR-010 single Property reporting currency v1
+- ADR-011 commercial occupancy vs physical utilization
 
 ## 3. Model domenowy
 - `data-model/OSG_M2_Relationship_Map_v0.2.md`
 - `data-model/OSG_Canonical_Entity_Catalog_v0.95.md`
 - `business-rules/OSG_M3_Business_Rules_Catalog_v0.2.md`
 - `state-machines/OSG_State_Machines_v0.1.md`
-- Logical ERD / Source-of-Truth artifacts
 
-## 4. Financial Truth
+## 4. Financial Truth / Commerce
 - `financial/OSG_M5_Financial_Truth_Specification_v0.1.md`
 - `financial/OSG_Financial_Truth_Reports_v0.1.md`
 - `financial/OSG_Financial_Invariants_v0.1.md`
 - `financial/OSG_Prepayment_Refund_and_Clearing_Contract_v0.1.md`
-- `commerce/OSG_Commercial_Snapshot_Contract_v0.1.md`
+- `financial/OSG_Financial_Period_Close_Contract_v0.1.md`
+- `financial/OSG_Financial_Period_Assignment_v0.1.md`
+- `commercial/OSG_Commercial_Snapshot_Contract_v0.1.md`
+- `commercial/OSG_Folio_Close_and_Balance_Contract_v0.1.md`
 
-## 5. Security / Privacy / Approvals
+## 5. Security / Identity / Privacy
 - `security/OSG_M6_Permissions_and_Security_v0.1.md`
 - `security/OSG_Tenant_Isolation_Contract_v0.1.md`
 - `security/OSG_Approval_Policy_Framework_v0.1.md`
-- permission matrix
+- `security/OSG_Permission_Matrix_v0.2.md`
 - `privacy/OSG_M9_Data_Lifecycle_and_Privacy_v0.1.md`
+- `guest/OSG_Guest_Identity_and_Merge_Contract_v0.1.md`
 
 ## 6. Metrics / Analytics / Data Quality
-- `metrics/OSG_M7_Metric_Dictionary_v0.1.md`
+- `metrics/OSG_M7_Metric_Dictionary_v0.3.md` — current metric contract
+- `metrics/OSG_M7_Metric_Dictionary_v0.1.md` / v0.2 — historical evolution
 - `analytics/OSG_Semantic_Layer_v0.1.md`
+- `analytics/OSG_Semantic_API_Contract_v0.1.md`
+- `analytics/OSG_Explainability_Contract_v0.1.md`
 - `data-quality/OSG_Data_Quality_Scoring_v0.1.md`
 
 ## 7. Integracje
@@ -70,7 +82,8 @@ Data: 2026-09-14
 - `communication/OSG_Communication_and_Notification_Contract_v0.1.md`
 
 ## 12. API / Events / Engineering / Observability
-- `api/OSG_OpenAPI_Skeleton_v0.1.yaml`
+- `api/OSG_OpenAPI_v0.2.yaml` — current API candidate
+- `api/OSG_OpenAPI_Skeleton_v0.1.yaml` — historical
 - `api/OSG_Command_Contracts_v0.1.md`
 - `api/OSG_Error_Model_v0.1.md`
 - `events/OSG_M4_Domain_Events_and_Automations_v0.1.md`
@@ -94,70 +107,96 @@ Data: 2026-09-14
 - `readiness/OSG_PreFreeze_Gap_Register_v0.96.md`
 - `readiness/OSG_Technical_Freeze_Checklist_v0.1.md`
 
-## 15. Database schema — current candidate
-Load order and status: `../database/README.md`
+## 15. Database schema — current pre-v1 candidate
+Canonical clean-load sequence: `../database/README.md`.
 
-Current candidate:
+Base:
 - `../database/schema/osg_schema_v0.95_core.sql`
 - `../database/schema/osg_schema_v0.95_extensions.sql`
 - `../database/schema/osg_schema_v0.95_supporting.sql`
-- `../database/schema/osg_schema_v0.96_patch.sql`
-- `../database/schema/osg_schema_v0.96_financial_guard_patch.sql`
+
+Additive/pre-v1 patches currently include:
+- v0.96 historical-period relation + closed-target guard
+- v0.96 posted-allocation immutability
+- PropertyStayPolicy
+- AvailabilityBlock impact semantics
+- EconomicEvent NORMAL/REVERSAL direction
+- same-tenant Property-context guards
+- HARD_CLOSED mutation/controlled reopen guards
+- mandatory FinancialPeriod assignment + non-overlap
+- CommandIdempotency ledger
+- Property reporting-currency guard
+- Guest identity/merge provenance + alias guards
+- overnight attribution anchor
+- Folio currency/refund/close guards
 
 Historical only:
 - `../database/schema/osg_logical_schema_v0.1.sql`
 
-## 16. Database proof guards
+## 16. Semantic SQL — current business truth
+- `../database/semantic/osg_semantic_occupancy_v0.1.sql` — capacity/physical facts
+- `../database/semantic/osg_semantic_accommodation_nights_v0.1.sql` — commercial accommodation nights
+- `../database/semantic/osg_semantic_financial_truth_v0.1.sql` — economic result/unit/stay/settlement
+- `../database/semantic/osg_semantic_folio_v0.1.sql`
+- `../database/semantic/osg_semantic_cash_v0.1.sql`
+- `../database/semantic/osg_semantic_revenue_v0.1.sql` — content semantics v0.3
+- `../database/semantic/osg_semantic_operations_v0.1.sql`
+- `../database/semantic/osg_semantic_guest_v0.1.sql`
+- `../database/semantic/osg_data_quality_checks_v0.1.sql`
+- `../database/semantic/osg_data_quality_accommodation_nights_v0.1.sql`
+
+## 17. Database proof guards/workflows
 - `../database/proof/financial_conservation_guards_v0.1.sql`
 - `../database/proof/resource_capacity_guard_v0.1.sql`
+- `../database/proof/financial_posting_workflow_v0.2.sql` — current posting proof
 - `../database/proof/tenant_rls_v0.1.sql`
-- other historical proof files in `../database/proof/`
 
-## 17. Reference data / end-to-end executable scenarios
-Master:
+## 18. Reference configuration / scenarios
+Configuration:
 - `../database/seeds/glamping_nad_stawem_master_v0.95.sql`
+- `../database/seeds/glamping_nad_stawem_stay_policy_v0.97.sql` — current content includes overnight anchor
+- `../database/seeds/glamping_nad_stawem_financial_periods_v0.99.sql`
 
-Business-path scenarios:
-- `../database/seeds/scenario_01_direct_stay_sauna_v0.95.sql`
-- `../database/seeds/scenario_02_ota_net_payout_v0.95.sql`
-- `../database/seeds/scenario_03_operator_expense_settlement_v0.95.sql`
-- `../database/seeds/scenario_04_mixed_business_private_allocation_v0.95.sql`
-- `../database/seeds/scenario_05_capex_opex_one_invoice_v0.95.sql`
-- `../database/seeds/scenario_06_incident_relocation_v0.95.sql`
-- `../database/seeds/scenario_07_prepayment_full_refund_v0.96.sql`
-- `../database/seeds/scenario_08_duplicate_pms_event_v0.96.sql`
-- `../database/seeds/scenario_09_shared_electricity_allocation_v0.96.sql`
-- `../database/seeds/scenario_10_late_invoice_closed_period_v0.96.sql`
-- `../database/seeds/scenario_12_turnover_at_risk_v0.96.sql`
+Business scenarios 01–10 + 12 under `../database/seeds/`.
+Negative/capacity scenario 11 under `../tests/sql/`.
 
-Negative/capacity test:
-- `../tests/sql/scenario_11_resource_capacity_v0.96.sql`
-
-## 18. P0 proof specifications
+## 19. Executable test specifications
 - `../tests/specs/OSG_P0_Executable_Test_Vectors_v0.1.yaml`
 - `../tests/specs/OSG_P0_Proof_Execution_Plan_v0.1.md`
 - `../tests/sql/p0_invariants_v0.1.sql`
+- `../tests/sql/folio_invariants_pre_v1.sql`
 
-GitHub Issues #1–#5 contain individual P0 proofs.
-Issue #8 is the full clean-load/scenario execution gate.
-Issues #6–#7 contain real PMS/bank discovery.
+## 20. GitHub execution gates
+- #1 StaySegment overlap
+- #2 Resource concurrency
+- #3 Atomic Financial Truth posting / closed period
+- #4 tenant isolation DB/API/jobs
+- #5 integration/automation/command idempotency
+- #6 real PMS/reservation discovery
+- #7 bank/cash import discovery
+- #8 clean-load entire current schema + scenarios
+- #9 same-tenant cross-Property integrity
+- #10 Folio balance/currency/refund proof (P1 before live payments)
 
-## 19. Current status
+## 21. Current status
 
-- Concept: mature
-- Domain model: stable pre-freeze candidate
-- Financial Truth: stable pre-freeze candidate
-- Product contracts: coherent first-pass
-- Semantic/AI governance: foundation defined
-- Technical schema: v0.96 candidate, not executed in PostgreSQL yet
-- Reference scenarios: 12 designed; 11 valid-path seeds + 1 negative/capacity SQL test
+- Product concept: mature
+- Domain boundaries: stable pre-v1 candidate
+- Financial Truth: mature semantic candidate; executable proof pending
+- Property/Digital Twin: mature core candidate
+- Commercial accommodation-night semantics: separated from physical utilization
+- Guest identity provenance: modeled additively
+- Semantic API/KPI: coherent pre-v1 candidate
+- Technical schema: base v0.95 + reviewed pre-v1 patches; not yet consolidated
+- PostgreSQL clean-load: **not executed yet**
 - Production implementation: not started
-- Schema freeze: **v0.96 semantic candidate; NOT v1.0 FINAL**
+- Schema freeze: **NOT v1.0 FINAL**
 
-## 20. Next gate
+## 22. Immediate gate
 
-1. Execute Issue #8 clean load in real PostgreSQL.
-2. Execute concurrent P0 proofs Issues #1–#5.
-3. Fold accepted patches into one canonical v1.0 DDL.
-4. Generate versioned DEV migrations.
-5. Only then decide `Schema v1.0 FINAL`.
+1. Execute Issue #8 on real PostgreSQL.
+2. Execute P0 Issues #1–#5 and #9 under real concurrency/runtime roles.
+3. Fix only evidence-backed failures.
+4. Consolidate accepted patches into one canonical v1.0 schema.
+5. Generate actual migrations and rerun tests.
+6. Then decide Schema v1.0 FINAL.
