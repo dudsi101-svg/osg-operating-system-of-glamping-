@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osg.local/schemas/events/GuestProfile.Merged.v1.json",
+  "title": "GuestProfile.Merged payload v1",
+  "type": "object",
+  "required": ["canonical_guest_profile_id","merged_guest_profile_id","merge_event_id","occurred_at"],
+  "properties": {
+    "canonical_guest_profile_id": {"type": "string", "format": "uuid"},
+    "merged_guest_profile_id": {"type": "string", "format": "uuid"},
+    "merge_event_id": {"type": "string", "format": "uuid"},
+    "match_candidate_id": {"type": ["string","null"], "format": "uuid"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "reason_code": {"type": "string"}
+  },
+  "additionalProperties": false
+}
