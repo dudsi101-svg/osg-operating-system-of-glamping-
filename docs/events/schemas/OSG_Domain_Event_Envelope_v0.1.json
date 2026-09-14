@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osg.local/schemas/domain-event-envelope-v0.1.json",
+  "title": "OSG Domain Event Envelope v0.1",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "organization_id",
+    "aggregate_type",
+    "aggregate_id",
+    "occurred_at",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"type": "string", "minLength": 3},
+    "event_version": {"type": "integer", "minimum": 1},
+    "organization_id": {"type": "string", "format": "uuid"},
+    "property_id": {"type": ["string", "null"], "format": "uuid"},
+    "aggregate_type": {"type": "string"},
+    "aggregate_id": {"type": "string", "format": "uuid"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "actor": {
+      "type": ["object", "null"],
+      "properties": {
+        "actor_type": {"type": "string", "enum": ["USER", "SYSTEM", "INTEGRATION", "AI"]},
+        "actor_id": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "source": {"type": ["string", "null"]},
+    "correlation_id": {"type": "string", "format": "uuid"},
+    "causation_id": {"type": ["string", "null"], "format": "uuid"},
+    "payload": {"type": "object"}
+  },
+  "additionalProperties": false
+}
