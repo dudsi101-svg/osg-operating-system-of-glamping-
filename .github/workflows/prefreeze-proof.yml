@@ -1,0 +1,46 @@
+name: OSG PostgreSQL PRE-FREEZE proof
+on:
+  push:
+    branches: ['agent/proof/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: osg-proof-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  clean-load:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: osg_proof
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: osg_proof
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U osg_proof -d osg_proof"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: osg_proof
+      PGPASSWORD: local-ci-only
+      PGDATABASE: osg_proof
+      OSG_PROOF_DISPOSABLE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Execute canonical load and scenarios
+        run: python3 tests/postgres/clean_load.py
+      - name: Upload proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osg-postgres-proof-${{ github.sha }}
+          path: proof-results/
+          if-no-files-found: error
