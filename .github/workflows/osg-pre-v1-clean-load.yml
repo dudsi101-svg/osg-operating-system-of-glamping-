@@ -64,6 +64,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          : > proof.log
+          exec > >(tee -a proof.log) 2>&1
 
           files=(
             database/schema/osg_schema_v0.95_core.sql
@@ -102,8 +104,9 @@ jobs:
           )
 
           for f in "${files[@]}"; do
-            test -f "$f" || { echo "Missing required artifact: $f" >&2; exit 1; }
+            test -f "$f" || { echo "OSG_PROOF_FAILURE missing_artifact=$f" >&2; exit 1; }
             echo "::group::LOAD $f"
+            echo "OSG_PROOF_LOAD $f"
             psql -X -v ON_ERROR_STOP=1 -f "$f"
             echo "::endgroup::"
           done
@@ -112,6 +115,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a proof.log) 2>&1
 
           scenarios=(
             database/seeds/scenario_01_direct_stay_sauna_v0.95.sql
@@ -128,8 +132,9 @@ jobs:
           )
 
           for f in "${scenarios[@]}"; do
-            test -f "$f" || { echo "Missing scenario: $f" >&2; exit 1; }
+            test -f "$f" || { echo "OSG_PROOF_FAILURE missing_scenario=$f" >&2; exit 1; }
             echo "::group::SCENARIO $f"
+            echo "OSG_PROOF_SCENARIO $f"
             psql -X -v ON_ERROR_STOP=1 -f "$f"
             echo "::endgroup::"
           done
@@ -138,12 +143,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a proof.log) 2>&1
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/scenario_11_resource_capacity_v0.96.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/p0_invariants_v0.1.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/folio_invariants_pre_v1.sql
 
       - name: Final smoke queries
+        shell: bash
         run: |
+          set -euo pipefail
+          exec > >(tee -a proof.log) 2>&1
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           select count(*) as organizations from organization;
           select count(*) as properties from property;
@@ -153,6 +162,16 @@ jobs:
           SQL
 
       - name: Proof scope note
+        if: always()
         run: |
-          echo 'Clean-load proves syntax/dependency/fixture compatibility and single-session scenario execution.'
-          echo 'It does NOT replace true-concurrency proofs or realistic runtime-role RLS proof required by Issues #1-#5 and #9.'
+          echo 'Clean-load proves syntax/dependency/fixture compatibility and single-session scenario execution.' | tee -a proof.log
+          echo 'It does NOT replace true-concurrency proofs or realistic runtime-role RLS proof required by Issues #1-#5 and #9.' | tee -a proof.log
+
+      - name: Upload proof log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osg-pre-v1-proof-log-${{ github.run_id }}
+          path: proof.log
+          if-no-files-found: warn
+          retention-days: 7
