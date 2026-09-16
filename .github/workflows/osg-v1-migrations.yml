@@ -70,6 +70,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p artifacts
           args=(--output-dir artifacts/migrations)
           if test -f database/migrations/202609161520_schema_v1_0_rc1_baseline.sql || test -f database/migrations/CHECKSUMS.sha256; then
             test -f database/migrations/202609161520_schema_v1_0_rc1_baseline.sql
@@ -77,7 +78,7 @@ jobs:
             args+=(--verify-committed)
           fi
           python tools/generate_v1_baseline_migration.py "${args[@]}" | tee artifacts/migration-generator.log
-          sha256sum -c artifacts/migrations/CHECKSUMS.sha256 --ignore-missing
+          (cd artifacts/migrations && sha256sum -c CHECKSUMS.sha256)
 
       - name: Apply production migrations from empty database
         shell: bash
