@@ -80,6 +80,7 @@ jobs:
             database/schema/osg_schema_v0.97_availability_impact_patch.sql
             database/schema/osg_schema_v0.98_economic_direction_patch.sql
             database/schema/osg_schema_v0.99_property_context_guards.sql
+            database/schema/osg_schema_pre_v1_external_reference_tenant_guard.sql
             database/schema/osg_schema_pre_v1_closed_period_guard_patch.sql
             database/schema/osg_schema_pre_v1_financial_period_assignment_patch.sql
             database/schema/osg_schema_pre_v1_command_idempotency_patch.sql
