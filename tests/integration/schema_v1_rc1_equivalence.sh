@@ -5,6 +5,7 @@ SOURCE_DB="${PGDATABASE:-osg_source}"
 RC_DB="osg_rc_test"
 ARTIFACT_DIR="artifacts"
 DDL_PATH="$ARTIFACT_DIR/osg_schema_v1_rc1.generated.sql"
+SECOND_DDL_PATH="$ARTIFACT_DIR/osg_schema_v1_rc1.generated.second.sql"
 LOG_PATH="$ARTIFACT_DIR/osg_schema_v1_rc1_equivalence.log"
 
 mkdir -p "$ARTIFACT_DIR"
@@ -56,20 +57,52 @@ done
 
 echo "OSG_RC source patch-chain loaded"
 
-pg_dump \
-  --schema-only \
-  --no-owner \
-  --no-privileges \
-  --format=plain \
-  --file="$DDL_PATH" \
-  "$SOURCE_DB"
+normalize_dump() {
+  python - "$1" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+lines = p.read_text(encoding='utf-8').splitlines()
+out = []
+for line in lines:
+    if line.startswith('\\restrict '):
+        out.append('\\restrict OSG_SCHEMA_V1_RC1')
+    elif line.startswith('\\unrestrict '):
+        out.append('\\unrestrict OSG_SCHEMA_V1_RC1')
+    else:
+        out.append(line)
+p.write_text('\n'.join(out) + '\n', encoding='utf-8')
+PY
+}
+
+dump_schema() {
+  local path="$1"
+  pg_dump \
+    --schema-only \
+    --no-owner \
+    --no-privileges \
+    --format=plain \
+    --file="$path" \
+    "$SOURCE_DB"
+  normalize_dump "$path"
+}
+
+dump_schema "$DDL_PATH"
+dump_schema "$SECOND_DDL_PATH"
 
 test -s "$DDL_PATH" || { echo "OSG_RC_FAILURE generated DDL empty" >&2; exit 1; }
 if grep -Eq '^(COPY |INSERT INTO )' "$DDL_PATH"; then
   echo "OSG_RC_FAILURE schema-only artifact unexpectedly contains row data" >&2
   exit 1
 fi
+cmp -s "$DDL_PATH" "$SECOND_DDL_PATH" || {
+  echo "OSG_RC_FAILURE normalized schema dump is not deterministic" >&2
+  diff -u "$DDL_PATH" "$SECOND_DDL_PATH" | head -200 >&2 || true
+  exit 1
+}
+rm -f "$SECOND_DDL_PATH"
 
+echo "OSG_RC deterministic normalized dump PASS"
 echo "OSG_RC generated_schema_bytes=$(wc -c < "$DDL_PATH")"
 echo "OSG_RC generated_schema_sha256=$(sha256sum "$DDL_PATH" | awk '{print $1}')"
 
