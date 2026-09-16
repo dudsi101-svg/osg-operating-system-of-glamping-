@@ -17,7 +17,7 @@ import sys
 import psycopg
 
 LOCK_KEY = 1329744455
-LEDGER_TABLE = "osg_schema_migration"
+LEDGER_TABLE = "public.osg_schema_migration"
 MANIFEST_RE = re.compile(r"^([0-9a-f]{64})  ([A-Za-z0-9_.-]+\.sql)$")
 
 
