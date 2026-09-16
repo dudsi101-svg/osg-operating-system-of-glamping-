@@ -45,12 +45,17 @@ begin
     return new;
   end if;
 
+  -- The original Charge is the aggregate serialization point for all of its
+  -- reversals. FOR UPDATE is intentional even though the original row is not
+  -- mutated: concurrent reversal transactions for the same original must not
+  -- both calculate the remaining reversible amount from the same snapshot.
+  -- Different originals remain independent and can proceed concurrently.
   select folio_id,gross_amount
     into v_original_folio,v_original_amount
   from charge
   where organization_id=new.organization_id
     and id=new.reverses_charge_id
-  for share;
+  for update;
 
   if not found then
     raise exception 'OSG_ORIGINAL_CHARGE_NOT_FOUND';
