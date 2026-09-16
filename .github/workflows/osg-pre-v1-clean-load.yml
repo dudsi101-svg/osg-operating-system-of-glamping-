@@ -154,6 +154,7 @@ jobs:
           python tests/integration/idempotency_pre_v1.py
           python tests/integration/idempotency_business_effects_pre_v1.py
           python tests/integration/tenant_isolation_pre_v1.py
+          python tests/integration/property_context_pre_v1.py
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/scenario_11_resource_capacity_v0.96.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/p0_invariants_v0.1.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/folio_invariants_pre_v1.sql
@@ -180,7 +181,8 @@ jobs:
           echo 'Financial proof validates atomic posting, rollback, immutability, reversal, closed-period rules and concurrent duplicate-post single effect.' | tee -a proof.log
           echo 'Idempotency proof validates concurrent integration claims, command replay/payload mismatch, duplicate Financial posting commands, PMS commerce replay and automation Turnover deduplication.' | tee -a proof.log
           echo 'Tenant proof validates cross-Organization link integrity, runtime-role RLS visibility, fail-closed no-scope workers and security-audit service-boundary behavior.' | tee -a proof.log
-          echo 'Remaining separate P0/P1 gates include Settlements and same-tenant cross-Property coverage; production RLS migration remains separate from proof policy.' | tee -a proof.log
+          echo 'Property proof validates same-Organization cross-Property guards while preserving explicit Organization-level facts.' | tee -a proof.log
+          echo 'Remaining separate P0/P1 gates include Settlements; production RLS migration remains separate from proof policy.' | tee -a proof.log
 
       - name: Upload proof log
         if: always()
