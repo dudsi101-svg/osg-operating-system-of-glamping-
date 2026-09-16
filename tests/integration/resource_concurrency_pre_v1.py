@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import threading
 import time
-import uuid
 from dataclasses import dataclass
 
 import psycopg
@@ -90,10 +89,17 @@ def insert_rr(
     )
 
 
-def assert_capacity(conn, start: str, end: str, amount: int, as_of: str = "2026-12-10T12:00:00+01") -> None:
+def assert_capacity(
+    conn,
+    start: str,
+    end: str,
+    amount: int,
+    as_of: str = "2026-12-10T12:00:00+01",
+    resource_id: str = CAP8,
+) -> None:
     conn.execute(
         "select osg_assert_resource_capacity(%s,%s,%s,%s,null,%s)",
-        (CAP8, start, end, amount, as_of),
+        (resource_id, start, end, amount, as_of),
     )
 
 
@@ -140,7 +146,10 @@ def test_capacity_exact_fill_and_overflow() -> None:
 
     # Remove accepted +2; prove existing 6 + request 3 rejects.
     with connect() as conn:
-        conn.execute("delete from resource_reservation where id=%s", ("00000000-0000-7000-8000-000000009302",))
+        conn.execute(
+            "delete from resource_reservation where id=%s",
+            ("00000000-0000-7000-8000-000000009302",),
+        )
 
     def overflow():
         with connect() as conn:
@@ -242,7 +251,10 @@ def test_capacity_true_concurrency() -> None:
         except Exception as exc:  # pragma: no cover - diagnostic path
             results[index].error = repr(exc)
 
-    threads = [threading.Thread(target=worker, args=(0,)), threading.Thread(target=worker, args=(1,))]
+    threads = [
+        threading.Thread(target=worker, args=(0,)),
+        threading.Thread(target=worker, args=(1,)),
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -255,11 +267,17 @@ def test_capacity_true_concurrency() -> None:
 
     outcomes = sorted(result.outcome for result in results)
     if outcomes != ["REJECTED", "SUCCESS"]:
-        raise AssertionError(f"capacity concurrency expected one success/one reject, got {outcomes}")
+        raise AssertionError(
+            f"capacity concurrency expected one success/one reject, got {outcomes}"
+        )
     print("PASS capacity true concurrency: exactly one of two capacity=5 requests committed")
 
 
 def test_exclusive_true_concurrency() -> None:
+    # EXCLUSIVE uses the same serialized ReserveResource workflow as CAPACITY.
+    # The GiST exclusion constraint remains a fail-closed backstop; using only
+    # concurrent bare INSERTs can produce a PostgreSQL deadlock rather than the
+    # stable domain error required by OSG.
     barrier = threading.Barrier(2)
     results = [ThreadResult(), ThreadResult()]
     ids = [
@@ -271,6 +289,13 @@ def test_exclusive_true_concurrency() -> None:
         try:
             with connect() as conn:
                 barrier.wait(timeout=10)
+                assert_capacity(
+                    conn,
+                    "2026-12-15T17:30:00+01",
+                    "2026-12-15T19:15:00+01",
+                    1,
+                    resource_id=SAUNA,
+                )
                 insert_rr(
                     conn,
                     rr_id=ids[index],
@@ -284,16 +309,25 @@ def test_exclusive_true_concurrency() -> None:
                 )
                 time.sleep(0.35)
             results[index].outcome = "SUCCESS"
-        except errors.ExclusionViolation as exc:
-            constraint = exc.diag.constraint_name
-            if constraint != "ex_exclusive_resource_no_overlap":
-                results[index].error = f"unexpected constraint {constraint}: {exc}"
+        except errors.RaiseException as exc:
+            if "OSG_RESOURCE_CAPACITY_EXCEEDED" not in str(exc):
+                results[index].error = str(exc)
             else:
                 results[index].outcome = "REJECTED"
+        except errors.ExclusionViolation as exc:
+            # This is still fail-closed, but it means the canonical lock/guard
+            # workflow failed to serialize and therefore is a test failure.
+            results[index].error = (
+                f"unexpected exclusion backstop instead of stable guard error; "
+                f"constraint={exc.diag.constraint_name}: {exc}"
+            )
         except Exception as exc:  # pragma: no cover - diagnostic path
             results[index].error = repr(exc)
 
-    threads = [threading.Thread(target=worker, args=(0,)), threading.Thread(target=worker, args=(1,))]
+    threads = [
+        threading.Thread(target=worker, args=(0,)),
+        threading.Thread(target=worker, args=(1,)),
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -306,9 +340,11 @@ def test_exclusive_true_concurrency() -> None:
 
     outcomes = sorted(result.outcome for result in results)
     if outcomes != ["REJECTED", "SUCCESS"]:
-        raise AssertionError(f"exclusive concurrency expected one success/one reject, got {outcomes}")
+        raise AssertionError(
+            f"exclusive concurrency expected one success/one reject, got {outcomes}"
+        )
     print("PASS exclusive true concurrency: exactly one overlapping Sauna reservation committed")
-    print("OSG_ERROR_CODE=RESOURCE_CAPACITY_EXCEEDED constraint=ex_exclusive_resource_no_overlap")
+    print("OSG_ERROR_CODE=RESOURCE_CAPACITY_EXCEEDED via serialized resource guard")
 
 
 def main() -> None:
