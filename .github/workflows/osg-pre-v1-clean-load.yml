@@ -6,6 +6,7 @@ on:
     paths:
       - 'database/**'
       - 'tests/sql/**'
+      - 'tests/integration/**'
       - '.github/workflows/osg-pre-v1-clean-load.yml'
   push:
     branches:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'database/**'
       - 'tests/sql/**'
+      - 'tests/integration/**'
       - '.github/workflows/osg-pre-v1-clean-load.yml'
 
 permissions:
@@ -49,10 +51,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install PostgreSQL client
+      - name: Install PostgreSQL proof dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
+          python -m pip install --disable-pip-version-check 'psycopg[binary]>=3.2,<4'
           psql --version
 
       - name: Verify database readiness
@@ -139,12 +142,13 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Execute single-session invariant checks
+      - name: Execute invariant and concurrency checks
         shell: bash
         run: |
           set -euo pipefail
           exec > >(tee -a proof.log) 2>&1
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/stay_segment_overlap_pre_v1.sql
+          python tests/integration/resource_concurrency_pre_v1.py
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/scenario_11_resource_capacity_v0.96.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/p0_invariants_v0.1.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/folio_invariants_pre_v1.sql
@@ -165,9 +169,10 @@ jobs:
       - name: Proof scope note
         if: always()
         run: |
-          echo 'Clean-load proves syntax/dependency/fixture compatibility and single-session scenario execution.' | tee -a proof.log
-          echo 'StaySegment temporal proof deterministically validates overlap, adjacency and cancelled semantics.' | tee -a proof.log
-          echo 'It does NOT replace true-concurrency proofs or realistic runtime-role RLS proof required by Issues #2-#5 and #9.' | tee -a proof.log
+          echo 'Clean-load proves syntax/dependency/fixture compatibility and reference scenario execution.' | tee -a proof.log
+          echo 'StaySegment temporal proof validates overlap, adjacency and cancelled semantics.' | tee -a proof.log
+          echo 'Resource proof uses independent DB connections and validates exclusive/capacity concurrency, expired holds and effective buffers.' | tee -a proof.log
+          echo 'Remaining separate P0 gates include Financial posting, Settlements, realistic runtime-role RLS/tenant isolation and command/integration idempotency.' | tee -a proof.log
 
       - name: Upload proof log
         if: always()
