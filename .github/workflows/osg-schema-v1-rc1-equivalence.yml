@@ -18,7 +18,7 @@ on:
       - '.github/workflows/osg-schema-v1-rc1-equivalence.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   schema-v1-rc1-equivalence:
@@ -50,6 +50,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.sha }}
 
       - name: Install PostgreSQL proof dependencies
         run: |
@@ -67,6 +69,30 @@ jobs:
       - name: Generate flattened RC1 and prove behavioral equivalence
         shell: bash
         run: bash tests/integration/schema_v1_rc1_equivalence.sh
+
+      - name: Promote first proven deterministic RC1 candidate
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate='database/rc/osg_schema_v1_rc1.sql'
+          generated='artifacts/osg_schema_v1_rc1.generated.sql'
+
+          if test -f "$candidate"; then
+            echo 'OSG_RC_PROMOTION canonical candidate already exists; no write required.'
+            exit 0
+          fi
+
+          mkdir -p "$(dirname "$candidate")"
+          cp "$generated" "$candidate"
+          test "$(sha256sum "$candidate" | awk '{print $1}')" = '4c43fa53da21192b4160936b26770a1d9845acc5780f3d2c4d4b32a0be589f0d'
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$candidate"
+          git commit -m 'schema: add deterministic Schema v1.0 RC1 candidate [skip ci]'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo 'OSG_RC_PROMOTION committed proven deterministic RC1 candidate.'
 
       - name: Upload generated RC1 proof artifacts
         if: always()
