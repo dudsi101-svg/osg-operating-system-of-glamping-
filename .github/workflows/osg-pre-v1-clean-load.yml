@@ -90,6 +90,7 @@ jobs:
             database/schema/osg_schema_pre_v1_overnight_anchor_patch.sql
             database/semantic/osg_semantic_folio_v0.1.sql
             database/schema/osg_schema_pre_v1_folio_guards.sql
+            database/schema/osg_schema_pre_v1_charge_reversal_guards.sql
             database/proof/financial_conservation_guards_v0.1.sql
             database/proof/resource_capacity_guard_v0.1.sql
             database/proof/financial_posting_workflow_v0.2.sql
@@ -157,6 +158,7 @@ jobs:
           python tests/integration/property_context_pre_v1.py
           python tests/integration/settlement_concurrency_pre_v1.py
           python tests/integration/folio_invariants_pre_v1.py
+          python tests/integration/charge_reversal_pre_v1.py
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/scenario_11_resource_capacity_v0.96.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/p0_invariants_v0.1.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/folio_invariants_pre_v1.sql
@@ -186,6 +188,7 @@ jobs:
           echo 'Property proof validates same-Organization cross-Property guards while preserving explicit Organization-level facts.' | tee -a proof.log
           echo 'Settlement proof validates exact conservation, stable over-application rejection and one-winner concurrency over the remaining balance.' | tee -a proof.log
           echo 'Folio proof executes payment/refund currency, refund conservation, close-balance and controlled-reopen invariants plus reference full-refund history.' | tee -a proof.log
+          echo 'Charge proof validates immutable final Charges, explicit reversal conservation, Folio/sign rules and concurrent over-reversal protection.' | tee -a proof.log
           echo 'Production RLS migration remains separate from proof policy.' | tee -a proof.log
 
       - name: Upload proof log
