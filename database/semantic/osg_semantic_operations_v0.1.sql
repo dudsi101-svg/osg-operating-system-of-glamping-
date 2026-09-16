@@ -24,16 +24,16 @@ as $$
     select * from osg_property_stay_policy_for_date(p_property_id, p_local_date)
   )
   select
-    r.id,
-    ri.id,
-    s.id,
-    ri.assigned_unit_id,
-    u.name,
-    pa.display_name,
-    ((ri.arrival_date::text || ' ' || pol.default_checkin_time::text)::timestamp at time zone pol.timezone),
-    r.commercial_status,
-    s.status,
-    (ri.adults + ri.children + ri.infants)
+    r.id as reservation_id,
+    ri.id as reservation_item_id,
+    s.id as stay_id,
+    ri.assigned_unit_id as unit_id,
+    u.name as unit_name,
+    pa.display_name as guest_name,
+    ((ri.arrival_date::text || ' ' || pol.default_checkin_time::text)::timestamp at time zone pol.timezone) as expected_at,
+    r.commercial_status as commercial_status,
+    s.status as stay_status,
+    (ri.adults + ri.children + ri.infants) as total_guests
   from reservation r
   join reservation_item ri
     on ri.organization_id = r.organization_id
@@ -56,7 +56,7 @@ as $$
     and ri.arrival_date = p_local_date
     and ri.status = 'ACTIVE'
     and r.commercial_status in ('HELD','CONFIRMED')
-  order by expected_at, unit_name;
+  order by 7, 5;
 $$;
 
 create or replace function osg_expected_departures(
@@ -80,14 +80,14 @@ as $$
     select * from osg_property_stay_policy_for_date(p_property_id, p_local_date)
   )
   select
-    r.id,
-    ri.id,
-    s.id,
-    coalesce(last_seg.unit_id, ri.assigned_unit_id),
-    u.name,
-    pa.display_name,
-    ((ri.departure_date::text || ' ' || pol.default_checkout_time::text)::timestamp at time zone pol.timezone),
-    s.status
+    r.id as reservation_id,
+    ri.id as reservation_item_id,
+    s.id as stay_id,
+    coalesce(last_seg.unit_id, ri.assigned_unit_id) as unit_id,
+    u.name as unit_name,
+    pa.display_name as guest_name,
+    ((ri.departure_date::text || ' ' || pol.default_checkout_time::text)::timestamp at time zone pol.timezone) as expected_at,
+    s.status as stay_status
   from reservation r
   join reservation_item ri
     on ri.organization_id = r.organization_id
@@ -119,7 +119,7 @@ as $$
     and ri.departure_date = p_local_date
     and ri.status = 'ACTIVE'
     and r.commercial_status = 'CONFIRMED'
-  order by expected_at, unit_name;
+  order by 7, 5;
 $$;
 
 create or replace view osg_turnover_attention as
