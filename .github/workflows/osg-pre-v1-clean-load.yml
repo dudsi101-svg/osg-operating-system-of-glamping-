@@ -144,6 +144,7 @@ jobs:
         run: |
           set -euo pipefail
           exec > >(tee -a proof.log) 2>&1
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/stay_segment_overlap_pre_v1.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/scenario_11_resource_capacity_v0.96.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/p0_invariants_v0.1.sql
           psql -X -v ON_ERROR_STOP=1 -f tests/sql/folio_invariants_pre_v1.sql
@@ -165,7 +166,8 @@ jobs:
         if: always()
         run: |
           echo 'Clean-load proves syntax/dependency/fixture compatibility and single-session scenario execution.' | tee -a proof.log
-          echo 'It does NOT replace true-concurrency proofs or realistic runtime-role RLS proof required by Issues #1-#5 and #9.' | tee -a proof.log
+          echo 'StaySegment temporal proof deterministically validates overlap, adjacency and cancelled semantics.' | tee -a proof.log
+          echo 'It does NOT replace true-concurrency proofs or realistic runtime-role RLS proof required by Issues #2-#5 and #9.' | tee -a proof.log
 
       - name: Upload proof log
         if: always()
