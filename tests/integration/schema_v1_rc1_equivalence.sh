@@ -6,6 +6,7 @@ RC_DB="osg_rc_test"
 ARTIFACT_DIR="artifacts"
 DDL_PATH="$ARTIFACT_DIR/osg_schema_v1_rc1.generated.sql"
 SECOND_DDL_PATH="$ARTIFACT_DIR/osg_schema_v1_rc1.generated.second.sql"
+CANONICAL_DDL_PATH="database/rc/osg_schema_v1_rc1.sql"
 LOG_PATH="$ARTIFACT_DIR/osg_schema_v1_rc1_equivalence.log"
 
 mkdir -p "$ARTIFACT_DIR"
@@ -105,6 +106,18 @@ rm -f "$SECOND_DDL_PATH"
 echo "OSG_RC deterministic normalized dump PASS"
 echo "OSG_RC generated_schema_bytes=$(wc -c < "$DDL_PATH")"
 echo "OSG_RC generated_schema_sha256=$(sha256sum "$DDL_PATH" | awk '{print $1}')"
+
+if test -f "$CANONICAL_DDL_PATH"; then
+  cmp -s "$DDL_PATH" "$CANONICAL_DDL_PATH" || {
+    echo "OSG_RC_FAILURE committed RC1 candidate drifted from generated proven schema" >&2
+    echo "generated_sha256=$(sha256sum "$DDL_PATH" | awk '{print $1}')" >&2
+    echo "committed_sha256=$(sha256sum "$CANONICAL_DDL_PATH" | awk '{print $1}')" >&2
+    exit 1
+  }
+  echo "OSG_RC committed candidate byte-equivalence PASS sha256=$(sha256sum "$CANONICAL_DDL_PATH" | awk '{print $1}')"
+else
+  echo "OSG_RC canonical candidate not committed yet; promotion may follow successful push proof"
+fi
 
 dropdb --if-exists "$RC_DB"
 createdb "$RC_DB"
