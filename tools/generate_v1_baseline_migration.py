@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the first OSG v1 production baseline migration from proven RC1.
+r"""Generate the first OSG v1 production baseline migration from proven RC1.
 
 The transformation is intentionally minimal: remove only pg_dump's deterministic
 \restrict / \unrestrict psql meta-command lines. Any other psql meta command
