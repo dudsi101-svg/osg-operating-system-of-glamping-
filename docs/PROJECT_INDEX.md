@@ -2,13 +2,14 @@
 
 Status: kanoniczny indeks dokumentacji
 Data aktualizacji: 2026-09-16
-Aktualny etap: **PRE-FREEZE PROOF COMPLETE → Schema v1.0 RC consolidation**
+Aktualny etap: **Schema v1.0 RC1 CONSOLIDATED → production migrations + complete RLS**
 
 ## 1. Checkpointy
 - `checkpoints/OSG_02_Core_Data_Model_Checkpoint_v1.3.md`
 - `checkpoints/OSG_03_PreBuild_Architecture_Checkpoint_v0.1.md`
 - `checkpoints/OSG_04_PreFreeze_v0.96_Checkpoint.md`
-- `checkpoints/OSG_05_Schema_v1_RC1_Readiness_Checkpoint.md` — **current handoff checkpoint**
+- `checkpoints/OSG_05_Schema_v1_RC1_Readiness_Checkpoint.md`
+- `checkpoints/OSG_06_Schema_v1_RC1_Consolidated_Checkpoint.md` — **current handoff checkpoint**
 
 ## 2. Architektura / ADR
 - `architecture/OSG_Implementation_Architecture_v0.1.md`
@@ -94,6 +95,7 @@ Aktualny etap: **PRE-FREEZE PROOF COMPLETE → Schema v1.0 RC consolidation**
 - `engineering/OSG_CI_and_Test_Strategy_v0.1.md`
 - `engineering/OSG_Definition_of_Done_v0.1.md`
 - `engineering/OSG_Outbox_and_Event_Delivery_v0.1.md`
+- `engineering/OSG_RC1_Database_Function_Promotion_Register_v0.1.md` — runtime/proof classification for RC1
 - `observability/OSG_Observability_Model_v0.1.md`
 
 ## 13. Agenci
@@ -102,26 +104,33 @@ Aktualny etap: **PRE-FREEZE PROOF COMPLETE → Schema v1.0 RC consolidation**
 - root `../AGENTS.md`
 
 ## 14. Walidacja / readiness
-- `readiness/OSG_Technical_Freeze_Checklist_v0.1.md` — P0 proof state synchronized 2026-09-16
-- `readiness/OSG_PreFreeze_Gap_Register_v0.96.md` — includes evidence-backed GAP-011/012
+- `readiness/OSG_Technical_Freeze_Checklist_v0.1.md`
+- `readiness/OSG_PreFreeze_Gap_Register_v0.96.md`
 - `readiness/OSG_M11_Schema_Freeze_Gate_v0.1.md`
 - `readiness/OSG_M12_Build_Readiness_Review_v0.1.md`
 - `readiness/OSG_Schema_Freeze_Candidate_v0.9.md` — historical pre-execution assessment
 - `readiness/OSG_Schema_Freeze_Assessment_v0.95.md` — historical assessment
 - `scenarios/OSG_End_to_End_Scenarios_v0.1.md`
 
-The current execution-state checkpoint supersedes old `PENDING_EXECUTION` statements in historical assessment documents; those files remain architecture history rather than current status.
+Current execution status is authoritative in Checkpoint 06. Historical `PENDING_EXECUTION` language in older assessment files is retained only as architecture history.
 
-## 15. Database schema — accepted pre-v1 patch-chain candidate
+## 15. Database schema — current canonical RC1 candidate
 
-Canonical clean-load sequence remains documented in `../database/README.md` until RC consolidation replaces it with a clean v1 candidate baseline.
+Fresh-install candidate:
+- `../database/rc/osg_schema_v1_rc1.sql`
 
-Base:
-- `../database/schema/osg_schema_v0.95_core.sql`
-- `../database/schema/osg_schema_v0.95_extensions.sql`
-- `../database/schema/osg_schema_v0.95_supporting.sql`
+Deterministic SHA-256:
+- `4c43fa53da21192b4160936b26770a1d9845acc5780f3d2c4d4b32a0be589f0d`
 
-Accepted additive/pre-v1 behavior includes:
+Database guide:
+- `../database/README.md`
+
+Migration policy draft/guidance:
+- `../database/MIGRATIONS.md`
+
+The historical v0.95 + pre-v1 patch chain remains regeneration/evolution evidence, not the preferred fresh-install interface.
+
+Accepted RC1 behavior includes:
 - historical-period relation + closed-target guard
 - posted-allocation immutability
 - PropertyStayPolicy
@@ -137,31 +146,37 @@ Accepted additive/pre-v1 behavior includes:
 - overnight attribution anchor
 - Folio currency/refund/close guards
 - final Charge immutability + explicit reversal conservation
-
-Key files added/hardened during executable proof:
-- `../database/schema/osg_schema_pre_v1_external_reference_tenant_guard.sql`
-- `../database/schema/osg_schema_pre_v1_charge_reversal_guards.sql`
+- concurrent Charge reversal serialization
 
 Historical only:
 - `../database/schema/osg_logical_schema_v0.1.sql`
 
 ## 16. Semantic SQL — current business truth
-- `../database/semantic/osg_semantic_occupancy_v0.1.sql` — capacity/physical facts
-- `../database/semantic/osg_semantic_accommodation_nights_v0.1.sql` — commercial accommodation nights
-- `../database/semantic/osg_semantic_financial_truth_v0.1.sql` — economic result/unit/stay/settlement
+- `../database/semantic/osg_semantic_occupancy_v0.1.sql`
+- `../database/semantic/osg_semantic_accommodation_nights_v0.1.sql`
+- `../database/semantic/osg_semantic_financial_truth_v0.1.sql`
 - `../database/semantic/osg_semantic_folio_v0.1.sql`
 - `../database/semantic/osg_semantic_cash_v0.1.sql`
-- `../database/semantic/osg_semantic_revenue_v0.1.sql` — content semantics v0.3
+- `../database/semantic/osg_semantic_revenue_v0.1.sql`
 - `../database/semantic/osg_semantic_operations_v0.1.sql`
 - `../database/semantic/osg_semantic_guest_v0.1.sql`
 - `../database/semantic/osg_data_quality_checks_v0.1.sql`
 - `../database/semantic/osg_data_quality_accommodation_nights_v0.1.sql`
 
-## 17. Database proof guards/workflows
+## 17. Database proof lineage / runtime promotion
+
+Historically developed under `database/proof/` and promoted into RC1 runtime candidate:
 - `../database/proof/financial_conservation_guards_v0.1.sql`
 - `../database/proof/resource_capacity_guard_v0.1.sql`
 - `../database/proof/financial_posting_workflow_v0.2.sql`
-- `../database/proof/tenant_rls_v0.1.sql` — dedicated runtime-role proof policy
+
+Classification authority:
+- `engineering/OSG_RC1_Database_Function_Promotion_Register_v0.1.md`
+
+Not a production baseline:
+- `../database/proof/tenant_rls_v0.1.sql` — selective proof only
+- `../database/proof/constraints_v0.1.sql` — historical model proof
+- `../database/proof/financial_posting_workflow_v0.1.sql` — superseded
 
 ## 18. Reference configuration / scenarios
 
@@ -173,10 +188,14 @@ Configuration:
 Business scenarios 01–10 + 12 execute under CI.
 Negative/capacity scenario 11 executes under `../tests/sql/`.
 
-## 19. Executable proof harness
+## 19. Executable proof harnesses
 
-Workflow:
+Pre-v1 lineage proof:
 - `../.github/workflows/osg-pre-v1-clean-load.yml`
+
+RC1 deterministic equivalence/drift proof:
+- `../.github/workflows/osg-schema-v1-rc1-equivalence.yml`
+- `../tests/integration/schema_v1_rc1_equivalence.sh`
 
 Primary integration proofs:
 - `../tests/integration/resource_concurrency_pre_v1.py`
@@ -189,15 +208,18 @@ Primary integration proofs:
 - `../tests/integration/folio_invariants_pre_v1.py`
 - `../tests/integration/charge_reversal_pre_v1.py`
 
-SQL/spec support:
-- `../tests/specs/OSG_P0_Executable_Test_Vectors_v0.1.yaml`
-- `../tests/specs/OSG_P0_Proof_Execution_Plan_v0.1.md`
-- `../tests/sql/stay_segment_overlap_pre_v1.sql`
-- `../tests/sql/p0_invariants_v0.1.sql`
-- `../tests/sql/folio_invariants_pre_v1.sql`
+Key accepted runs:
+- pre-v1 repaired full proof `35093917785` — **PASS**
+- deterministic RC1 generation/equivalence `35113431149` — **PASS**
+- RC1 promotion `35113875981` — **PASS**
+- committed RC1 byte-drift + full behavior verification `35114164171` — **PASS**
 
-Latest complete proof after all repairs:
-- GitHub Actions run `35093917785` — **PASS**
+RC1 proof inventory:
+- 92 tables
+- 20 views
+- 238 functions
+- 22 non-internal triggers
+- 659 constraints
 
 ## 20. GitHub execution gates
 
@@ -205,13 +227,18 @@ Completed:
 - #1 StaySegment overlap — CLOSED / PASS
 - #2 Resource concurrency — CLOSED / PASS
 - #3 Atomic Financial Truth posting / closed period — CLOSED / PASS
-- #4 tenant isolation DB/runtime role/jobs — CLOSED / PASS
+- #4 tenant isolation DB/runtime role/jobs — CLOSED / PASS for proven critical runtime paths
 - #5 integration/automation/command idempotency — CLOSED / PASS
 - #8 clean-load current schema + scenarios — CLOSED / PASS
 - #9 same-tenant cross-Property integrity — CLOSED / PASS
 - #10 Folio balance/currency/refund proof — CLOSED / PASS
 - #11 Charge immutability/reversal proof — CLOSED / PASS
 - #14 Settlement conservation true concurrency — CLOSED / PASS
+- #15 deterministic consolidated RC1 + behavioral equivalence — COMPLETED / PASS
+
+Open RC gates before FINAL:
+- #16 production migration baseline + data-preserving upgrade path
+- #17 production-wide tenant RLS policy + complete coverage proof
 
 External discovery still open:
 - #6 real PMS/reservation/channel flow
@@ -220,27 +247,27 @@ External discovery still open:
 ## 21. Current status
 
 - Product concept: mature
-- Domain boundaries: stable enough to enter RC consolidation
-- Financial Truth: semantic model + atomic/concurrency/immutability proof green
+- Domain boundaries: consolidated into proven RC1 candidate
+- Financial Truth: semantic + atomic/concurrency/immutability proof green
 - Property/Digital Twin: core + cross-Property integrity proof green
 - Commercial accommodation-night semantics: separated from physical utilization
 - Guest identity provenance: modeled additively
-- Semantic API/KPI: coherent pre-v1 candidate
-- Tenant isolation: critical runtime-role and cross-tenant proof green; production-wide RLS migration still pending
+- Semantic API/KPI: coherent pre-v1/RC candidate
+- Tenant integrity: critical runtime paths proven; **production-wide RLS coverage still pending #17**
 - Idempotency: command/integration/automation business-effect proof green
 - Settlement: conservation and true-concurrency proof green
 - Folio/Charge: live-commerce invariant proof green
-- PostgreSQL patch-chain clean-load: **EXECUTED / PASS**
-- Technical schema: accepted behavior still represented as base + patches; **not yet consolidated**
-- Production migrations: not yet created
-- Schema freeze: **READY FOR v1.0 RC CONSOLIDATION; NOT FINAL**
+- PostgreSQL pre-v1 patch-chain clean-load: PASS
+- Deterministic consolidated Schema v1.0 RC1: **COMMITTED / BYTE-EQUIVALENT / BEHAVIORALLY PROVEN**
+- Production migrations: pending #16
+- Production RLS: pending #17
+- Production implementation: not started
+- Schema freeze: **RC1; NOT v1.0 FINAL**
 
 ## 22. Immediate gate
 
-1. Build one canonical consolidated `Schema v1.0 Candidate` from accepted base + patches without redesigning proven semantics.
-2. Prove behavioral equivalence using the full existing PostgreSQL/concurrency/RLS suite against the consolidated candidate.
-3. Create real ordered production migrations.
-4. Execute upgrade-path tests on representative pre-v1 data.
-5. Expand production RLS verification to every tenant-owned table.
-6. Obtain independent review.
-7. Only then decide `Schema v1.0 FINAL` and create the final tag/checkpoint.
+1. Execute #16 — create real production migration baseline and prove representative data preservation/upgrade behavior.
+2. Execute #17 — classify every RC1 table and install/prove production-wide tenant RLS with realistic roles.
+3. Run independent freeze review across schema, migrations, RLS, security and unresolved readiness/config/legal items.
+4. Only then decide `Schema v1.0 FINAL` and create final tag/checkpoint.
+5. Continue #6/#7 discovery for the first Glamping Nad Stawem pilot without vendor-modeling OSG Core prematurely.
