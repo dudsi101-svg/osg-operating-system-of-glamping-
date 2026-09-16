@@ -290,7 +290,17 @@ class ThreadResult:
 
 def cleanup_concurrent_fixture(event_id: str) -> None:
     with connect() as conn:
-        # outbox first because it FK-references domain_event
+        row = conn.execute(
+            "select status from economic_event where id=%s",
+            (event_id,),
+        ).fetchone()
+        if row and row[0] == "POSTED":
+            # The CI database is isolated and discarded after the job. A POSTED
+            # proof fixture is deliberately left intact because deleting its
+            # Allocation would violate the very immutability invariant we test.
+            print("NOTE leaving immutable POSTED proof fixture in isolated CI database")
+            return
+        # Safe only for a pre-existing non-posted fixture from a partial local run.
         conn.execute(
             "delete from outbox_event where domain_event_id in (select id from domain_event where aggregate_id=%s)",
             (event_id,),
