@@ -1,0 +1,158 @@
+name: OSG pre-v1 clean-load proof
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'database/**'
+      - 'tests/sql/**'
+      - '.github/workflows/osg-pre-v1-clean-load.yml'
+  push:
+    branches:
+      - 'agent/engineering/clean-load-ci'
+    paths:
+      - 'database/**'
+      - 'tests/sql/**'
+      - '.github/workflows/osg-pre-v1-clean-load.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  clean-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: osg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d osg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: osg_test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql --version
+
+      - name: Verify database readiness
+        run: |
+          pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"
+          psql -X -v ON_ERROR_STOP=1 -c 'select version();'
+
+      - name: Clean-load canonical pre-v1 chain
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          files=(
+            database/schema/osg_schema_v0.95_core.sql
+            database/schema/osg_schema_v0.95_extensions.sql
+            database/schema/osg_schema_v0.95_supporting.sql
+            database/schema/osg_schema_v0.96_patch.sql
+            database/schema/osg_schema_v0.96_financial_guard_patch.sql
+            database/schema/osg_schema_v0.96_stay_policy_patch.sql
+            database/schema/osg_schema_v0.97_availability_impact_patch.sql
+            database/schema/osg_schema_v0.98_economic_direction_patch.sql
+            database/schema/osg_schema_v0.99_property_context_guards.sql
+            database/schema/osg_schema_pre_v1_closed_period_guard_patch.sql
+            database/schema/osg_schema_pre_v1_financial_period_assignment_patch.sql
+            database/schema/osg_schema_pre_v1_command_idempotency_patch.sql
+            database/schema/osg_schema_pre_v1_reporting_currency_guard.sql
+            database/schema/osg_schema_pre_v1_guest_identity_resolution.sql
+            database/schema/osg_schema_pre_v1_guest_alias_guards.sql
+            database/schema/osg_schema_pre_v1_overnight_anchor_patch.sql
+            database/semantic/osg_semantic_folio_v0.1.sql
+            database/schema/osg_schema_pre_v1_folio_guards.sql
+            database/proof/financial_conservation_guards_v0.1.sql
+            database/proof/resource_capacity_guard_v0.1.sql
+            database/proof/financial_posting_workflow_v0.2.sql
+            database/semantic/osg_semantic_occupancy_v0.1.sql
+            database/semantic/osg_semantic_accommodation_nights_v0.1.sql
+            database/semantic/osg_semantic_financial_truth_v0.1.sql
+            database/semantic/osg_semantic_cash_v0.1.sql
+            database/semantic/osg_semantic_revenue_v0.1.sql
+            database/semantic/osg_semantic_operations_v0.1.sql
+            database/semantic/osg_semantic_guest_v0.1.sql
+            database/semantic/osg_data_quality_checks_v0.1.sql
+            database/semantic/osg_data_quality_accommodation_nights_v0.1.sql
+            database/seeds/glamping_nad_stawem_master_v0.95.sql
+            database/seeds/glamping_nad_stawem_stay_policy_v0.97.sql
+            database/seeds/glamping_nad_stawem_financial_periods_v0.99.sql
+          )
+
+          for f in "${files[@]}"; do
+            test -f "$f" || { echo "Missing required artifact: $f" >&2; exit 1; }
+            echo "::group::LOAD $f"
+            psql -X -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Execute valid reference scenarios
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scenarios=(
+            database/seeds/scenario_01_direct_stay_sauna_v0.95.sql
+            database/seeds/scenario_02_ota_net_payout_v0.95.sql
+            database/seeds/scenario_03_operator_expense_settlement_v0.95.sql
+            database/seeds/scenario_04_mixed_business_private_allocation_v0.95.sql
+            database/seeds/scenario_05_capex_opex_one_invoice_v0.95.sql
+            database/seeds/scenario_06_incident_relocation_v0.95.sql
+            database/seeds/scenario_07_prepayment_full_refund_v0.96.sql
+            database/seeds/scenario_08_duplicate_pms_event_v0.96.sql
+            database/seeds/scenario_09_shared_electricity_allocation_v0.96.sql
+            database/seeds/scenario_10_late_invoice_closed_period_v0.96.sql
+            database/seeds/scenario_12_turnover_at_risk_v0.96.sql
+          )
+
+          for f in "${scenarios[@]}"; do
+            test -f "$f" || { echo "Missing scenario: $f" >&2; exit 1; }
+            echo "::group::SCENARIO $f"
+            psql -X -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Execute single-session invariant checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/scenario_11_resource_capacity_v0.96.sql
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/p0_invariants_v0.1.sql
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/folio_invariants_pre_v1.sql
+
+      - name: Final smoke queries
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          select count(*) as organizations from organization;
+          select count(*) as properties from property;
+          select count(*) as units from unit;
+          select count(*) as reservations from reservation;
+          select count(*) as economic_events from economic_event;
+          SQL
+
+      - name: Proof scope note
+        run: |
+          echo 'Clean-load proves syntax/dependency/fixture compatibility and single-session scenario execution.'
+          echo 'It does NOT replace true-concurrency proofs or realistic runtime-role RLS proof required by Issues #1-#5 and #9.'
