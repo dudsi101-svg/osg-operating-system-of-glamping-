@@ -80,21 +80,21 @@ psql -X -v ON_ERROR_STOP=1 -d "$RC_DB" -f "$DDL_PATH" >/dev/null
 echo "OSG_RC flattened candidate clean-load PASS"
 
 inventory_sql="
-select 'relation:'||c.relkind||':'||count(*)
+select 'relation:'||c.relkind::text||':'||count(*)::text
 from pg_class c
 join pg_namespace n on n.oid=c.relnamespace
 where n.nspname='public' and c.relkind in ('r','v','m','S')
 group by c.relkind
 union all
-select 'function:'||count(*)
+select 'function:'||count(*)::text
 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
 where n.nspname='public'
 union all
-select 'trigger:'||count(*)
+select 'trigger:'||count(*)::text
 from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace
 where n.nspname='public' and not t.tgisinternal
 union all
-select 'constraint:'||count(*)
+select 'constraint:'||count(*)::text
 from pg_constraint co join pg_namespace n on n.oid=co.connamespace
 where n.nspname='public'
 order by 1;
