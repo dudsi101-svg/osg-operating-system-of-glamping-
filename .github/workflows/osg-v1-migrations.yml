@@ -1,0 +1,242 @@
+name: OSG v1 production migration proof
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'database/rc/**'
+      - 'database/migrations/**'
+      - 'tools/generate_v1_baseline_migration.py'
+      - 'tests/sql/**'
+      - 'tests/integration/**'
+      - '.github/workflows/osg-v1-migrations.yml'
+  push:
+    branches:
+      - 'agent/engineering/clean-load-ci'
+    paths:
+      - 'database/rc/**'
+      - 'database/migrations/**'
+      - 'tools/generate_v1_baseline_migration.py'
+      - 'tests/sql/**'
+      - 'tests/integration/**'
+      - '.github/workflows/osg-v1-migrations.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  v1-migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: osg_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d osg_migration_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: osg_migration_test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.sha }}
+
+      - name: Install proof dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          python -m pip install --disable-pip-version-check 'psycopg[binary]>=3.2,<4'
+          psql --version
+          pg_dump --version
+          python -m py_compile tools/generate_v1_baseline_migration.py database/migrations/apply.py
+
+      - name: Generate deterministic v1 baseline migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          args=(--output-dir artifacts/migrations)
+          if test -f database/migrations/202609161520_schema_v1_0_rc1_baseline.sql || test -f database/migrations/CHECKSUMS.sha256; then
+            test -f database/migrations/202609161520_schema_v1_0_rc1_baseline.sql
+            test -f database/migrations/CHECKSUMS.sha256
+            args+=(--verify-committed)
+          fi
+          python tools/generate_v1_baseline_migration.py "${args[@]}" | tee artifacts/migration-generator.log
+          (cd artifacts/migrations && sha256sum -c CHECKSUMS.sha256)
+
+      - name: Apply production migrations from empty database
+        shell: bash
+        run: |
+          set -euo pipefail
+          dropdb --if-exists osg_migration_test
+          createdb osg_migration_test
+          export PGDATABASE=osg_migration_test
+          python database/migrations/apply.py --migration-dir artifacts/migrations | tee artifacts/migration-apply-first.log
+          psql -X -v ON_ERROR_STOP=1 -Atc "select migration_name||':'||checksum_sha256 from osg_schema_migration order by migration_name" | tee artifacts/migration-ledger.txt
+          test "$(psql -X -Atc 'select count(*) from osg_schema_migration')" = '1'
+
+      - name: Prove migration runner idempotent replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PGDATABASE=osg_migration_test
+          python database/migrations/apply.py --migration-dir artifacts/migrations | tee artifacts/migration-apply-replay.log
+          grep -F 'OSG_MIGRATION PASS applied_now=0 skipped=1 total=1' artifacts/migration-apply-replay.log
+          test "$(psql -X -Atc 'select count(*) from osg_schema_migration')" = '1'
+
+      - name: Compare migrated business schema with direct RC1
+        shell: bash
+        run: |
+          set -euo pipefail
+          dropdb --if-exists osg_rc_direct
+          createdb osg_rc_direct
+          psql -X -v ON_ERROR_STOP=1 -d osg_rc_direct -f database/rc/osg_schema_v1_rc1.sql >/dev/null
+
+          pg_dump --schema-only --no-owner --no-privileges --exclude-table=osg_schema_migration -d osg_migration_test -f /tmp/migrated.sql
+          pg_dump --schema-only --no-owner --no-privileges -d osg_rc_direct -f /tmp/direct.sql
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def normalize(path: str) -> bytes:
+              lines = Path(path).read_text(encoding='utf-8').splitlines()
+              out = []
+              for line in lines:
+                  if line.startswith('\\restrict '):
+                      out.append('\\restrict OSG_COMPARE')
+                  elif line.startswith('\\unrestrict '):
+                      out.append('\\unrestrict OSG_COMPARE')
+                  else:
+                      out.append(line)
+              return ('\n'.join(out) + '\n').encode()
+
+          migrated = normalize('/tmp/migrated.sql')
+          direct = normalize('/tmp/direct.sql')
+          Path('/tmp/migrated.normalized.sql').write_bytes(migrated)
+          Path('/tmp/direct.normalized.sql').write_bytes(direct)
+          if migrated != direct:
+              raise SystemExit('OSG_MIGRATION_SCHEMA_EQUIVALENCE_FAILED')
+          print('OSG_MIGRATION_SCHEMA_EQUIVALENCE PASS')
+          PY
+
+      - name: Execute reference configuration and full invariant suite on migrated DB
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PGDATABASE=osg_migration_test
+
+          seeds=(
+            database/seeds/glamping_nad_stawem_master_v0.95.sql
+            database/seeds/glamping_nad_stawem_stay_policy_v0.97.sql
+            database/seeds/glamping_nad_stawem_financial_periods_v0.99.sql
+          )
+          scenarios=(
+            database/seeds/scenario_01_direct_stay_sauna_v0.95.sql
+            database/seeds/scenario_02_ota_net_payout_v0.95.sql
+            database/seeds/scenario_03_operator_expense_settlement_v0.95.sql
+            database/seeds/scenario_04_mixed_business_private_allocation_v0.95.sql
+            database/seeds/scenario_05_capex_opex_one_invoice_v0.95.sql
+            database/seeds/scenario_06_incident_relocation_v0.95.sql
+            database/seeds/scenario_07_prepayment_full_refund_v0.96.sql
+            database/seeds/scenario_08_duplicate_pms_event_v0.96.sql
+            database/seeds/scenario_09_shared_electricity_allocation_v0.96.sql
+            database/seeds/scenario_10_late_invoice_closed_period_v0.96.sql
+            database/seeds/scenario_12_turnover_at_risk_v0.96.sql
+          )
+          for f in "${seeds[@]}"; do psql -X -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
+          for f in "${scenarios[@]}"; do psql -X -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
+
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/stay_segment_overlap_pre_v1.sql >/dev/null
+          python tests/integration/resource_concurrency_pre_v1.py
+          python tests/integration/financial_posting_pre_v1.py
+          python tests/integration/idempotency_pre_v1.py
+          python tests/integration/idempotency_business_effects_pre_v1.py
+          python tests/integration/tenant_isolation_pre_v1.py
+          python tests/integration/property_context_pre_v1.py
+          python tests/integration/settlement_concurrency_pre_v1.py
+          python tests/integration/folio_invariants_pre_v1.py
+          python tests/integration/charge_reversal_pre_v1.py
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/scenario_11_resource_capacity_v0.96.sql >/dev/null
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/p0_invariants_v0.1.sql >/dev/null
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/folio_invariants_pre_v1.sql >/dev/null
+          echo 'PASS OSG Issue #16 fresh-install production migration invariant suite'
+
+      - name: Prove file checksum tampering fails closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/osg_migrations_tamper
+          cp -R artifacts/migrations /tmp/osg_migrations_tamper
+          printf '\n-- tampered in CI only\n' >> /tmp/osg_migrations_tamper/202609161520_schema_v1_0_rc1_baseline.sql
+          dropdb --if-exists osg_migration_tamper
+          createdb osg_migration_tamper
+          export PGDATABASE=osg_migration_tamper
+          set +e
+          python database/migrations/apply.py --migration-dir /tmp/osg_migrations_tamper > /tmp/tamper.out 2>&1
+          rc=$?
+          set -e
+          cat /tmp/tamper.out
+          test "$rc" -ne 0
+          grep -F 'OSG_MIGRATION_CHECKSUM_MISMATCH_FILE' /tmp/tamper.out
+          echo 'PASS migration file tamper rejected before apply'
+
+      - name: Promote first proven production baseline migration
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate='database/migrations/202609161520_schema_v1_0_rc1_baseline.sql'
+          manifest='database/migrations/CHECKSUMS.sha256'
+          generated='artifacts/migrations/202609161520_schema_v1_0_rc1_baseline.sql'
+          generated_manifest='artifacts/migrations/CHECKSUMS.sha256'
+
+          if test -f "$candidate" && test -f "$manifest"; then
+            cmp -s "$candidate" "$generated"
+            cmp -s "$manifest" "$generated_manifest"
+            echo 'OSG_MIGRATION_PROMOTION canonical baseline already exists and matches; no write required.'
+            exit 0
+          fi
+          test ! -e "$candidate"
+          test ! -e "$manifest"
+          test "$(sha256sum "$generated" | awk '{print $1}')" = '262fac2bdf9b5d1bb1e7cbc6ccfb6d7917d547eed7c6f58e39726a325f46c491'
+
+          mkdir -p database/migrations
+          cp "$generated" "$candidate"
+          cp "$generated_manifest" "$manifest"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$candidate" "$manifest"
+          git commit -m 'migration: add proven Schema v1.0 production baseline [skip ci]'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo 'OSG_MIGRATION_PROMOTION committed proven baseline migration.'
+
+      - name: Upload migration proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osg-v1-migration-proof-${{ github.run_id }}
+          path: |
+            artifacts/migrations/
+            artifacts/migration-generator.log
+            artifacts/migration-apply-first.log
+            artifacts/migration-apply-replay.log
+            artifacts/migration-ledger.txt
+          if-no-files-found: warn
+          retention-days: 14

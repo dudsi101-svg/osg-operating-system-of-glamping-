@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+r"""Generate the first OSG v1 production baseline migration from proven RC1.
+
+The transformation is intentionally minimal: remove only pg_dump's deterministic
+\restrict / \unrestrict psql meta-command lines. Any other psql meta command
+fails closed. All remaining DDL bytes are preserved.
+
+The canonical production manifest may contain later migrations. `--verify-committed`
+therefore verifies the baseline bytes and the baseline's pinned manifest entry,
+not byte-equality of the entire evolving manifest.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+from pathlib import Path
+import sys
+
+RC_PATH = Path("database/rc/osg_schema_v1_rc1.sql")
+CANONICAL_MIGRATION = Path("database/migrations/202609161520_schema_v1_0_rc1_baseline.sql")
+CANONICAL_MANIFEST = Path("database/migrations/CHECKSUMS.sha256")
+MIGRATION_NAME = CANONICAL_MIGRATION.name
+EXPECTED_RC_SHA256 = "4c43fa53da21192b4160936b26770a1d9845acc5780f3d2c4d4b32a0be589f0d"
+EXPECTED_BASELINE_SHA256 = "262fac2bdf9b5d1bb1e7cbc6ccfb6d7917d547eed7c6f58e39726a325f46c491"
+EXPECTED_META_LINES = [
+    "\\restrict OSG_SCHEMA_V1_RC1",
+    "\\unrestrict OSG_SCHEMA_V1_RC1",
+]
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def generate(rc_bytes: bytes) -> bytes:
+    try:
+        text = rc_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SystemExit(f"OSG_MIGRATION_GENERATOR_INVALID_UTF8: {exc}") from exc
+
+    lines = text.splitlines(keepends=True)
+    seen_meta: list[str] = []
+    out: list[str] = []
+
+    for line in lines:
+        logical = line.rstrip("\r\n")
+        if logical.startswith("\\"):
+            seen_meta.append(logical)
+            if logical in EXPECTED_META_LINES:
+                continue
+            raise SystemExit(
+                f"OSG_MIGRATION_GENERATOR_UNEXPECTED_PSQL_META: {logical!r}"
+            )
+        out.append(line)
+
+    if seen_meta != EXPECTED_META_LINES:
+        raise SystemExit(
+            "OSG_MIGRATION_GENERATOR_META_MISMATCH: "
+            f"expected={EXPECTED_META_LINES!r} actual={seen_meta!r}"
+        )
+
+    generated = "".join(out).encode("utf-8")
+    if any(line.startswith(b"\\") for line in generated.splitlines()):
+        raise SystemExit("OSG_MIGRATION_GENERATOR_META_REMAINS")
+    return generated
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--output-dir",
+        default="artifacts/migrations",
+        help="Directory for generated baseline migration + baseline-only checksum manifest",
+    )
+    parser.add_argument(
+        "--verify-committed",
+        action="store_true",
+        help="Require committed baseline bytes and baseline manifest entry to match",
+    )
+    args = parser.parse_args()
+
+    rc_bytes = RC_PATH.read_bytes()
+    rc_hash = sha256(rc_bytes)
+    if rc_hash != EXPECTED_RC_SHA256:
+        raise SystemExit(
+            "OSG_MIGRATION_GENERATOR_RC_SHA_MISMATCH: "
+            f"expected={EXPECTED_RC_SHA256} actual={rc_hash}"
+        )
+
+    generated = generate(rc_bytes)
+    baseline_hash = sha256(generated)
+    if baseline_hash != EXPECTED_BASELINE_SHA256:
+        raise SystemExit(
+            "OSG_MIGRATION_GENERATOR_BASELINE_SHA_MISMATCH: "
+            f"expected={EXPECTED_BASELINE_SHA256} actual={baseline_hash}"
+        )
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_migration = out_dir / MIGRATION_NAME
+    out_manifest = out_dir / "CHECKSUMS.sha256"
+    baseline_manifest_line = f"{baseline_hash}  {MIGRATION_NAME}"
+    out_migration.write_bytes(generated)
+    out_manifest.write_text(baseline_manifest_line + "\n", encoding="utf-8")
+
+    if args.verify_committed:
+        if not CANONICAL_MIGRATION.exists() or not CANONICAL_MANIFEST.exists():
+            raise SystemExit("OSG_MIGRATION_GENERATOR_COMMITTED_BASELINE_MISSING")
+        if CANONICAL_MIGRATION.read_bytes() != generated:
+            raise SystemExit("OSG_MIGRATION_GENERATOR_COMMITTED_BASELINE_DRIFT")
+        manifest_lines = {
+            line.strip()
+            for line in CANONICAL_MANIFEST.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        if baseline_manifest_line not in manifest_lines:
+            raise SystemExit("OSG_MIGRATION_GENERATOR_COMMITTED_BASELINE_MANIFEST_ENTRY_MISSING")
+
+    print(f"OSG_MIGRATION_GENERATOR rc_sha256={rc_hash}")
+    print(f"OSG_MIGRATION_GENERATOR migration={MIGRATION_NAME}")
+    print(f"OSG_MIGRATION_GENERATOR bytes={len(generated)}")
+    print(f"OSG_MIGRATION_GENERATOR baseline_sha256={baseline_hash}")
+    if args.verify_committed:
+        print("OSG_MIGRATION_GENERATOR committed_baseline_equivalence=PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

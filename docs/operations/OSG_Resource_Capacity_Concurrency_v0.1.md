@@ -25,7 +25,7 @@ UNLIMITED — brak concurrency guard poza blokadami.
 
 ## 4. Transactional booking
 
-Operacja `ReserveResource`:
+Operacja `ReserveResource` dla **każdego ograniczonego Resource, również EXCLUSIVE**:
 1. rozpoczyna transakcję,
 2. lockuje Resource lub używa serializable/advisory lock dla resource_id,
 3. pobiera aktywne overlapping reservations,
@@ -35,9 +35,13 @@ Operacja `ReserveResource`:
 7. emituje event,
 8. commit.
 
+Executable proof wykazał, że dwa równoczesne gołe inserty pod GiST exclusion constraint mogą zostać rozwiązane przez PostgreSQL jako deadlock jednej z transakcji. Dlatego stabilny workflow domenowy nie może polegać wyłącznie na constraint. Resource lock + capacity guard jest kanoniczną ścieżką zapisu także dla EXCLUSIVE i daje stabilny `RESOURCE_CAPACITY_EXCEEDED`.
+
 ## 5. Database constraint
 
-Dla EXCLUSIVE Resource preferowany jest PostgreSQL exclusion constraint po `tstzrange(effective_start,effective_end,'[)')` i resource_id.
+Dla EXCLUSIVE Resource PostgreSQL exclusion constraint po `tstzrange(effective_start,effective_end,'[)')` i resource_id pozostaje **fail-closed backstopem / defense in depth**.
+
+Nie zastępuje on transakcyjnego Resource lock + guard wymaganego przez `ReserveResource`.
 
 Dla capacity > 1 sam exclusion constraint nie wystarcza — wymagany jest transakcyjny service + lock + invariant test.
 
@@ -59,7 +63,7 @@ Zmiana czasu istniejącej rezerwacji przechodzi przez ten sam concurrency check 
 
 ## 9. P0 tests
 
-RC-001 — dwie równoległe rezerwacje EXCLUSIVE → dokładnie jedna wygrywa.
+RC-001 — dwie równoległe rezerwacje EXCLUSIVE przez kanoniczny Resource lock + guard → dokładnie jedna wygrywa, druga `RESOURCE_CAPACITY_EXCEEDED`.
 RC-002 — capacity 8, istnieje 6 + próba 3 → reject.
 RC-003 — capacity 8, istnieje 6 + próba 2 → accept.
 RC-004 — cancelled reservation nie konsumuje capacity.

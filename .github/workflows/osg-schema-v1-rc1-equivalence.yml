@@ -1,0 +1,106 @@
+name: OSG Schema v1 RC1 equivalence proof
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'database/**'
+      - 'tests/sql/**'
+      - 'tests/integration/**'
+      - '.github/workflows/osg-schema-v1-rc1-equivalence.yml'
+  push:
+    branches:
+      - 'agent/engineering/clean-load-ci'
+    paths:
+      - 'database/**'
+      - 'tests/sql/**'
+      - 'tests/integration/**'
+      - '.github/workflows/osg-schema-v1-rc1-equivalence.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  schema-v1-rc1-equivalence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: osg_source
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d osg_source"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: osg_source
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.sha }}
+
+      - name: Install PostgreSQL proof dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          python -m pip install --disable-pip-version-check 'psycopg[binary]>=3.2,<4'
+          psql --version
+          pg_dump --version
+
+      - name: Verify source database readiness
+        run: |
+          pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"
+          psql -X -v ON_ERROR_STOP=1 -c 'select version();'
+
+      - name: Generate flattened RC1 and prove behavioral equivalence
+        shell: bash
+        run: bash tests/integration/schema_v1_rc1_equivalence.sh
+
+      - name: Promote first proven deterministic RC1 candidate
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate='database/rc/osg_schema_v1_rc1.sql'
+          generated='artifacts/osg_schema_v1_rc1.generated.sql'
+
+          if test -f "$candidate"; then
+            echo 'OSG_RC_PROMOTION canonical candidate already exists; no write required.'
+            exit 0
+          fi
+
+          mkdir -p "$(dirname "$candidate")"
+          cp "$generated" "$candidate"
+          test "$(sha256sum "$candidate" | awk '{print $1}')" = '4c43fa53da21192b4160936b26770a1d9845acc5780f3d2c4d4b32a0be589f0d'
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$candidate"
+          git commit -m 'schema: add deterministic Schema v1.0 RC1 candidate [skip ci]'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo 'OSG_RC_PROMOTION committed proven deterministic RC1 candidate.'
+
+      - name: Upload generated RC1 proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osg-schema-v1-rc1-${{ github.run_id }}
+          path: |
+            artifacts/osg_schema_v1_rc1.generated.sql
+            artifacts/osg_schema_v1_rc1_equivalence.log
+          if-no-files-found: warn
+          retention-days: 14

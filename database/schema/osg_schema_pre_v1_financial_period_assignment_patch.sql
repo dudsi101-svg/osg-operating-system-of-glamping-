@@ -34,8 +34,8 @@ declare
   v_count integer;
   v_status text;
 begin
-  select count(*), min(id), min(status)
-    into v_count, v_id, v_status
+  select count(*)
+    into v_count
   from financial_period
   where organization_id=p_organization_id
     and property_id is not distinct from p_property_id
@@ -46,6 +46,13 @@ begin
   elsif v_count>1 then
     raise exception 'OSG_FINANCIAL_PERIOD_AMBIGUOUS';
   end if;
+
+  select id,status
+    into v_id,v_status
+  from financial_period
+  where organization_id=p_organization_id
+    and property_id is not distinct from p_property_id
+    and p_economic_date between period_start and period_end;
 
   if v_status='HARD_CLOSED' then
     raise exception 'OSG_FINANCIAL_PERIOD_HARD_CLOSED';
